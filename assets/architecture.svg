@@ -41,19 +41,19 @@
   </defs>
 
   <!-- 判定口径 -->
-  <rect x="24" y="172" width="300" height="96" rx="8" fill="#ffffff" stroke="#d6e0ec"/>
+  <rect x="24" y="172" width="316" height="92" rx="8" fill="#ffffff" stroke="#d6e0ec"/>
   <text x="40" y="194" font-size="12.5" font-weight="700" fill="#d4380d">critical（必须整改）</text>
   <text x="40" y="213" font-size="10.5" fill="#39424f">表号与档案不一致 · 水印与工单差 ≥168h</text>
   <text x="40" y="230" font-size="10.5" fill="#39424f">手写日期异常 · 非燃气安检现场 · 重大隐患</text>
-  <text x="40" y="252" font-size="12.5" font-weight="700" fill="#b7791f">warning（提示）</text>
-  <text x="40" y="268" font-size="10.5" fill="#39424f">表号无法辨认 · 同检查项连拍重复</text>
+  <text x="40" y="249" font-size="12.5" font-weight="700" fill="#b7791f">warning（提示）</text>
+  <text x="40" y="265" font-size="10.5" fill="#39424f">表号无法辨认 · 同检查项连拍 · 检查项错位</text>
 
   <!-- 阈值单点 -->
-  <rect x="348" y="172" width="308" height="96" rx="8" fill="#f6ffed" stroke="#b7eb8f"/>
-  <text x="364" y="194" font-size="12.5" font-weight="700" fill="#237804">口径单点：168 小时</text>
-  <text x="364" y="214" font-size="10.5" fill="#39424f">定义在 ai/db.py 的 TIME_GAP_MIN，改一处全系统生效。</text>
-  <text x="364" y="232" font-size="10.5" fill="#39424f">gap ≥ 168h → critical；&lt; 168h 不标记</text>
-  <text x="364" y="250" font-size="10.5" fill="#39424f">（先拍照后补工单属正常）</text>
+  <rect x="356" y="172" width="300" height="92" rx="8" fill="#f6ffed" stroke="#b7eb8f"/>
+  <text x="372" y="194" font-size="12.5" font-weight="700" fill="#237804">口径单点：168 小时</text>
+  <text x="372" y="214" font-size="10.5" fill="#39424f">定义在 ai/db.py 的 TIME_GAP_MIN，改一处全局生效</text>
+  <text x="372" y="232" font-size="10.5" fill="#39424f">gap ≥ 168h → critical；&lt; 168h 不标记</text>
+  <text x="372" y="250" font-size="10.5" fill="#39424f">（先拍照后补工单属正常）</text>
 
   <!-- 下游 -->
   <rect x="24" y="288" width="200" height="80" rx="8" fill="#ffffff" stroke="#d6e0ec"/>

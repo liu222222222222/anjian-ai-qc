@@ -5,7 +5,25 @@
 > 核心思路：**识别不用外部视觉 API，由 Agent（对话模型）亲自读图判定**，
 > 程序只负责搬数据、下载、抽样、机械相似度计算、落库、渲染报告。
 
-![架构](assets/architecture.svg)
+```mermaid
+flowchart TD
+    A["安检明细 Excel<br/>只取「入户」· 同客户取最新一条"] --> B["分层抽样<br/>每安检员 10%，不足 1 户抽 1 户"]
+    B --> C["下载表具照片原图<br/>免认证直连，不压缩"]
+    C --> D["Agent 逐户读图<br/>表号 · 水印时间 · 场景 · 隐患 · 连拍"]
+    D --> E[("SQLite 落库<br/>issues 明细 + 照片三联分拣")]
+    E --> F["人工复核 /review<br/>误判置 active=0 留档，不删除"]
+    E --> G["实时看板 /live<br/>SSE 推进度，给现场投影"]
+    F --> H["报告渲染 /report<br/>纯 SQL + 模板，零大模型调用"]
+
+    classDef agent fill:#eef4ff,stroke:#1668dc,stroke-width:2px,color:#0e4fa8
+    classDef store fill:#f6ffed,stroke:#52c41a,color:#237804
+    class D agent
+    class E,G store
+```
+
+> 上图用 GitHub 原生 Mermaid 渲染，不依赖图床 —— 仓库内 `raw.githubusercontent.com`
+> 的图片域名在部分网络下不可达，会显示成裂图。离线版见 [`assets/architecture.svg`](assets/architecture.svg)
+> （矢量）与 [`assets/architecture.png`](assets/architecture.png)（2 倍图）。
 
 > **接手部署的 Agent 请直接看 [`docs/部署交接.md`](docs/部署交接.md)** ——
 > 里面有必须向用户采集的参数清单（分公司、照片列名、抽样口径、判定阈值）、改哪个文件、
@@ -197,7 +215,9 @@ anjian-ai-qc/
 │   ├── 部署交接.md           ★ 给接手 Agent 的部署 SOP（含参数采集清单）
 │   ├── SKILL.md            Agent 工作流说明（喂给 Agent 用）
 │   └── 子代理并行读图.md    ≥300 户时的子代理并行方法论
-├── assets/architecture.svg 架构示意图
+├── assets/
+│   ├── architecture.svg    架构图矢量版（可改，浏览器直接打开）
+│   └── architecture.png    架构图 2 倍位图（README 正文用 Mermaid，此图供离线/分享）
 ├── config.example.json     配置模板（复制为 ai/config.json）
 ├── requirements.txt
 ├── 启动质检系统.bat
