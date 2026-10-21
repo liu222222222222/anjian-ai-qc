@@ -80,12 +80,16 @@ tr.dropped td{background:#fafbfc;color:#8c959f}
   vertical-align:-2px;margin-right:5px}
 /* 明细表档位筛选：三档可勾选，默认严重+一般，误判默认收起 */
 .lvbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin:-4px 0 11px;font-size:12.5px}
-.lvbar label{display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:#fff;
-  border:1px solid #e3e8ee;border-radius:20px;padding:3px 12px 3px 9px;user-select:none;
+.lvbar label{display:inline-flex;align-items:center;gap:7px;cursor:pointer;background:#fff;
+  border:1px solid #e3e8ee;border-radius:20px;padding:4px 13px 4px 10px;user-select:none;
   transition:.15s;color:#39424f}
 .lvbar label:hover{border-color:#1668dc;box-shadow:0 1px 6px rgba(22,104,220,.1)}
-.lvbar input{margin:0;cursor:pointer;accent-color:#1668dc}
-.lvbar i{width:12px;height:12px;border-radius:3px;border:1px solid;display:inline-block}
+.lvbar input{margin:0;cursor:pointer;accent-color:#1668dc;width:14px;height:14px}
+/* 档位色点：实心小圆，不能做成方块——会被误认成第二个勾选框 */
+.lvbar i.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:0 0 auto}
+.dot-r{background:#d4380d}
+.dot-y{background:#e8a70c}
+.dot-d{background:#b0b8c2}
 .lvbar b{color:#1f2733;font-weight:700;margin-left:1px}
 .lvbar .lvhint{color:#8c959f;font-size:11.5px}
 /* 手动隐藏的行（配合 JS 筛选） */
@@ -615,11 +619,11 @@ def render_company(con, code, month=None, embed=True):
 <h2>三、抽查问题明细</h2>
 <div class="sub2" style="margin:-4px 0 10px">
 「AI 批注」为系统读图自动标注的问题；「人工审核」为集团工程部逐张复看后的结论与手写意见。
-三个档位中<b>实心高亮</b>的即本次审核勾选结果，行底色同步区分。勾选下方方框可筛选显示范围：</div>
+三个档位中<b>实心高亮</b>的即本次审核勾选结果，行底色同步区分。可按档位筛选下方明细：</div>
 <div class="lvbar" id="lvFilter">
-  <label><input type="checkbox" data-lv="cr" checked><i class="sw-r"></i>严重提示<b>{crit_house}</b></label>
-  <label><input type="checkbox" data-lv="wa" checked><i class="sw-y"></i>一般提示<b>{warn_house}</b></label>
-  <label><input type="checkbox" data-lv="fp"><i class="sw-d"></i>误判已剔除<b>{fp_house}</b></label>
+  <label><input type="checkbox" data-lv="cr" checked><i class="dot dot-r"></i>严重提示<b>{crit_house}</b></label>
+  <label><input type="checkbox" data-lv="wa" checked><i class="dot dot-y"></i>一般提示<b>{warn_house}</b></label>
+  <label><input type="checkbox" data-lv="fp"><i class="dot dot-d"></i>误判已剔除<b>{fp_house}</b></label>
   <span class="lvhint">取消勾选即隐藏该档</span>
 </div>
 <table class="hit">
