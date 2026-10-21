@@ -1,0 +1,22 @@
+# 统一换行符，避免跨平台 diff 噪音
+* text=auto eol=lf
+
+# Windows 批处理必须 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.ico binary
+*.svg text
+
+# 语言统计
+*.py text
+*.html text
+*.css text
+*.md text
+*.json text
+*.txt text
