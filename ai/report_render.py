@@ -1,6 +1,6 @@
 """报告渲染：生成自包含 HTML（照片base64 内嵌，可直接转发）
 两种：
-  render_summary()  整体简报（给董事会看）
+  render_summary()  月度情况说明（集团月度汇总）
   render_company()  单个分公司详细报告（给分公司安检领导看）
 用法见 __main__ / server.py 的 /api/report/download
 """
@@ -46,11 +46,22 @@ tr:hover td{background:#fafbfc}
 .th{width:96px;border-radius:6px;border:1px solid #e3e8ee;display:block;cursor:zoom-in;
   transition:.15s}
 .th:hover{transform:scale(1.04);border-color:#1668dc}
-/* 人工填了备注的行：整行淡红底，提示领导重点看 */
+/* 行底色按人工审核三选一区分（2026-10-21 用户定）：
+   严重提示=淡红，一般提示=淡黄，误判/未审核=无底色 */
 tr.marked td{background:#fff8f7}
 tr.marked:hover td{background:#fff0ee}
+tr.tip td{background:#fffbe6}
+tr.tip:hover td{background:#fff7d1}
+tr.dropped td{background:#fafbfc;color:#8c959f}
 .warnnote{color:#d4380d;font-weight:600;background:#fff1f0;border:1px solid #ffccc7;
   border-radius:4px;padding:1px 6px;display:inline-block;margin-top:3px}
+/* 人工审核意见：完整呈现手写批注，领导一眼看到批的内容和人 */
+.aunote{margin-top:5px;background:#fff1f0;border:1px solid #ffccc7;border-left:3px solid #d4380d;
+  border-radius:5px;padding:5px 8px;color:#a8071a;font-size:12px;line-height:1.75;min-width:150px}
+.aunote b{display:inline-block;margin-right:5px;font-size:10.5px;color:#fff;background:#d4380d;
+  border-radius:3px;padding:0 5px;font-weight:600;vertical-align:1px}
+.aumeta{margin-top:5px;font-size:11.5px;color:#39424f}
+.aumeta b{color:#1668dc}
 .tipbar{background:#f6ffed;border:1px solid #b7eb8f;border-left:4px solid #237804;
   color:#135200;padding:10px 14px;border-radius:6px;margin:0 0 18px;font-size:13px}
 .tipbar.warn{background:#fffbe6;border-color:#ffe58f;border-left-color:#b7791f;color:#874d00}
@@ -65,6 +76,31 @@ tr.marked:hover td{background:#fff0ee}
 .foot{margin-top:34px;padding-top:16px;border-top:1px solid #e3e8ee;color:#8c959f;font-size:11.5px;
   text-align:center;line-height:1.9}
 .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#6b7684}
+.legend i{display:inline-block;width:13px;height:13px;border-radius:3px;border:1px solid;
+  vertical-align:-2px;margin-right:5px}
+/* 明细表档位筛选：三档可勾选，默认严重+一般，误判默认收起 */
+.lvbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin:-4px 0 11px;font-size:12.5px}
+.lvbar label{display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:#fff;
+  border:1px solid #e3e8ee;border-radius:20px;padding:3px 12px 3px 9px;user-select:none;
+  transition:.15s;color:#39424f}
+.lvbar label:hover{border-color:#1668dc;box-shadow:0 1px 6px rgba(22,104,220,.1)}
+.lvbar input{margin:0;cursor:pointer;accent-color:#1668dc}
+.lvbar i{width:12px;height:12px;border-radius:3px;border:1px solid;display:inline-block}
+.lvbar b{color:#1f2733;font-weight:700;margin-left:1px}
+.lvbar .lvhint{color:#8c959f;font-size:11.5px}
+/* 手动隐藏的行（配合 JS 筛选） */
+table.hit tr[data-lv]{transition:background .12s}
+.sw-r{background:#fff8f7;border-color:#ffccc7}
+.sw-y{background:#fffbe6;border-color:#ffe58f}
+.sw-d{background:#fafbfc;border-color:#e3e8ee}
+/* 人工审核三档勾选：报告上直接看到勾了哪一个 */
+.vbars{display:flex;gap:4px;margin-bottom:5px;flex-wrap:wrap}
+.vbart{font-size:10.5px;line-height:1.6;padding:0 7px;border-radius:9px;
+  border:1px dashed #d9dee5;color:#b6bec8;background:#fbfcfd;white-space:nowrap}
+.vbart.on{color:#fff;border-style:solid;font-weight:600}
+.vbart.on.fp{background:#8c959f;border-color:#8c959f}
+.vbart.on.wa{background:#d48806;border-color:#d48806}
+.vbart.on.cr{background:#d4380d;border-color:#d4380d}
 .lb{position:fixed;inset:0;background:rgba(0,0,0,.86);display:none;align-items:center;
   justify-content:center;z-index:99;cursor:zoom-out}
 .lb.on{display:flex}
@@ -83,6 +119,32 @@ def month_label(month):
         return "本月"
     y, mm = month.split("-")
     return f"{y}年{int(mm)}月"
+
+
+# ---------------------------------------------------------------- 审核意见
+_PUNC_RE = re.compile(r"[\s，。；;、！!？?.,:：\"'“”‘’\-—_()（）\[\]【】/]+")
+
+
+def _norm_text(s):
+    return _PUNC_RE.sub("", str(s or ""))
+
+
+def review_text(note, note_auto, note_manual):
+    """返回该户完整的审核意见（单一文本）。
+
+    2026-10-21 用户定：报告里不再区分「系统建议 / 人工批注」，一律按人工审核意见呈现。
+    取数以库里的 note 为准（它本就是完整拼合串），保证一字不丢；旧写法
+    `if note_manual ... elif note and not note_auto` 会在 note_auto 有值时把人工
+    追加的整句吞掉（曾有 600+ 条复核意见踩这个坑），已废弃。
+    """
+    note = (note or "").strip()
+    nm = (note_manual or "").strip()
+    na = (note_auto or "").strip()
+    if note:
+        if nm and _norm_text(nm) not in _norm_text(note):
+            return note + "；" + nm      # note 里没含人工段，补上，宁可多不可丢
+        return note
+    return nm or na
 
 
 # ---------------------------------------------------------------- 图片
@@ -162,10 +224,30 @@ LIGHTBOX = ('<div class="lb" id="lb" onclick="this.classList.remove(\'on\')">'
             'document.addEventListener("keydown",e=>{if(e.key==="Escape")lb.classList.remove("on")});'
             '</script>')
 
+# 明细表档位筛选：勾哪个显示哪个，误判默认不勾（收起）
+FILTER_JS = """
+<script>
+(function(){
+  var box=document.getElementById('lvFilter'); if(!box) return;
+  var cbs=box.querySelectorAll('input[type=checkbox]');
+  function apply(){
+    var on={};
+    for(var i=0;i<cbs.length;i++) on[cbs[i].getAttribute('data-lv')]=cbs[i].checked;
+    var trs=document.querySelectorAll('table.hit tr[data-lv]');
+    for(var j=0;j<trs.length;j++){
+      var k=trs[j].getAttribute('data-lv');
+      trs[j].style.display=(on[k]===false)?'none':'';
+    }
+  }
+  for(var i=0;i<cbs.length;i++) cbs[i].addEventListener('change',apply);
+  apply();
+})();
+</script>"""
 
-# ---------------------------------------------------------------- 整体简报
+
+# ---------------------------------------------------------------- 月度情况说明
 def render_summary(stats, month=None, embed=True):
-    """整体简报：各分公司汇总 + 结论，给董事会看"""
+    """月度情况说明：各分公司汇总 + 结论"""
     con = D.connect()
     try:
         s = RD.summary(con, stats, month)
@@ -192,10 +274,10 @@ def render_summary(stats, month=None, embed=True):
                    f'<span>入户<b>{d["total_house"]:,}</b> 户</span>'
                    f'<span>抽查<b>{d["sampled"]:,}</b> 户</span>'
                    f'<span>覆盖率 <b>{d["rate"]}%</b></span>'
-                   f'<span>已复核 <b>{d["reviewed"]}</b> 户</span>'
+                   f'<span>已人工审核 <b>{d["reviewed"]}</b> 户</span>'
                    f'<span>提示问题 <b style="color:#b7791f">{d["warning_house"]}</b> 户</span>'
                    f'<span>严重问题 <b style="color:#d4380d">{d["critical_house"]}</b> 户</span>'
-                   + (f'<span>待复核 <b>{d["pending_review"]}</b> 户</span>'
+                   + (f'<span>待人工审核 <b>{d["pending_review"]}</b> 户</span>'
                       if d["pending_review"] else "")
                    + '</div>')
             boxes += (f'<div class="cobox"><div class="cn">{esc(d["name"])}'
@@ -233,20 +315,21 @@ def render_summary(stats, month=None, embed=True):
             for i in insp[:30]) or '<tr><td colspan="6" class="dim ctr" style="padding:20px">暂无问题记录</td></tr>'
 
         pending = s["pending"]
-        tip = (f'<div class="tipbar">本报告为整体简报，各分公司的详细问题清单（含照片）'
-               f'见各分公司单独报告。数据统计截至 {esc(s["generated"])}。</div>'
-               if active else '<div class="tipbar warn">本次尚无抽查数据。</div>')
+        tip = (f'<div class="tipbar">本说明汇总本月各分公司入户安检抽查情况，'
+               f'各分公司详细问题清单（含照片）见分公司专项报告。'
+               f'数据统计截至 {esc(s["generated"])}。</div>'
+               if active else '<div class="tipbar warn">本说明暂无抽查数据。</div>')
         if pending:
             tip += (f'<div class="tipbar warn">注意：尚有 <b>{pending}</b> 户问题未完成人工复核，'
-                    f'本简报为阶段性数据，复核完成后数据可能下降。</div>')
+                    f'本说明为阶段性数据，复核完成后数据可能下降。</div>')
 
         return f"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>安检抽查月度报告·整体简报 {esc(month_label(month))}</title><style>{CSS}</style></head><body>
+<title>燃气入户安检抽查 · 月度情况说明 {esc(month_label(month))}</title><style>{CSS}</style></head><body>
 <div class="wrap">
 <header>
-  <h1>燃气入户安检抽查 · 月度报告</h1>
-  <div class="sub">{esc(month_label(month))}　|　整体简报（覆盖 {len(active)} 家分公司）
+  <h1>燃气入户安检抽查 · 月度情况说明</h1>
+  <div class="sub">{esc(month_label(month))}　|　覆盖 {len(active)} 家分公司
   <div class="sub" style="margin-top:4px">生成时间 {esc(s['generated'])}</div></div>
 </header>
 
@@ -257,8 +340,8 @@ def render_summary(stats, month=None, embed=True):
     <div class="n">户</div></div>
   <div class="kpi"><div class="v b">{s['sampled']:,}</div><div class="l">本次抽查数量</div>
     <div class="n">覆盖率 {s['rate']}%</div></div>
-  <div class="kpi"><div class="v g">{s['reviewed']}</div><div class="l">已复核户数</div>
-    <div class="n">{('待复核 ' + str(s['pending']) + ' 户') if s['pending'] else '已全部完成'}</div></div>
+  <div class="kpi"><div class="v g">{s['reviewed']}</div><div class="l">已人工审核</div>
+    <div class="n">{('待人工审核 ' + str(s['pending']) + ' 户') if s['pending'] else '已全部完成'}</div></div>
   <div class="kpi"><div class="v r">{s['critical_house']}</div><div class="l">严重问题户数</div>
     <div class="n">{s['critical_n']} 条记录</div></div>
   <div class="kpi"><div class="v y">{s['warning_house']}</div><div class="l">提示问题户数</div>
@@ -273,7 +356,7 @@ def render_summary(stats, month=None, embed=True):
 <h2>一、各分公司抽查情况</h2>
 <table>
 <tr><th>分公司</th><th class="ctr">当月入户</th><th class="ctr">抽查</th><th class="ctr">覆盖率</th>
-<th class="ctr">已复核</th><th class="ctr">严重问题户</th><th class="ctr">提示问题户</th>
+<th class="ctr">已人工审核</th><th class="ctr">严重问题户</th><th class="ctr">提示问题户</th>
 <th class="ctr">问题总户</th><th class="ctr">符合率</th></tr>
 {comp_rows}
 </table>
@@ -297,7 +380,7 @@ def render_summary(stats, month=None, embed=True):
 </table>
 <div class="sub2" style="margin-top:7px">严重问题占比 = 涉及严重问题的户数 ÷ 该安检员抽查户数，仅作质量参考。</div>
 
-{foot('整体简报')}
+{foot('月度情况说明')}
 </div>
 {LIGHTBOX}
 </body></html>"""
@@ -307,7 +390,7 @@ def render_summary(stats, month=None, embed=True):
 
 # ---------------------------------------------------------------- 分公司报告
 def render_company(con, code, month=None, embed=True):
-    """单个分公司的详细报告：统计 + 结论 + 问题明细（含照片、审批状态）"""
+    """单个分公司的详细报告：统计 + 结论 + 抽查明细（含照片、人工审核）"""
     rw = "company=?" + (" AND substr(check_time,1,7)=?" if month else "")
     ra = [code] + ([month] if month else [])
     iw = "i.company=?" + (" AND i.month=?" if month else "")
@@ -323,7 +406,8 @@ def render_company(con, code, month=None, embed=True):
     # 表号类问题常有 photo_id 为空（该户没拍表具），回退取该户任意一张照片，
     # 优先表具 → 其他 → 总体，避免整行显示"无照片"
     MC = D.meter_code(code)
-    # 2026-10-19：统一读有效档位视图（误判户在视图里 eff_severity=NULL，天然被排除）
+    # 2026-10-21 用户定：报告里要能勾选查看「误判已剔除」的户，
+    # 所以把误判户也捞出来（它们的 eff_severity 为 NULL），默认隐藏、由前端筛选控制。
     rows = con.execute(
         f"""SELECT i.severity, i.eff_severity, i.kind, i.detail, i.photo_id,
                    r.id AS record_id, r.cust_no, r.cust_name, r.inspector, r.address,
@@ -335,34 +419,70 @@ def render_company(con, code, month=None, embed=True):
                   ORDER BY CASE ph.items_code WHEN '{MC}' THEN 0
                            WHEN 'overall_path' THEN 2 ELSE 1 END, ph.id LIMIT 1))
             LEFT JOIN reviews v ON v.record_id=r.id
-            WHERE {iw} AND i.eff_severity IN ('critical','warning')
+            WHERE {iw} AND (i.eff_severity IN ('critical','warning')
+                            OR v.verdict='false_positive')
               AND r.id IN ({recs})
             ORDER BY CASE i.eff_severity WHEN 'critical' THEN 0 ELSE 1 END,
                      r.cust_no, i.kind""", ia + ra).fetchall()
 
     # 复核裁决（与主界面/分公司明细页同口径，2026-10-16）：
-    # 误判户从报表剔除；判严重/提示的按裁决换档
+    # 误判户单列一档（默认隐藏），判严重/提示的按裁决换档
     rv_map = RD.review_map(con, code, month)
-    rows_eff = [(r, r["eff_severity"] or r["severity"]) for r in rows]
-    fp_ids = {rid for rid, v in rv_map.items() if v == "false_positive"}
+    rows_eff = []
+    for r in rows:
+        vd0 = (r["verdict"] or "").strip()
+        fs = "false_positive" if vd0 == "false_positive" else (r["eff_severity"] or r["severity"])
+        rows_eff.append((r, fs))
     embedded = embed_images([r for r, _ in rows_eff]) if embed else {}
     crit_house = len({r["record_id"] for r, fs in rows_eff if fs == "critical"})
     warn_house = len({r["record_id"] for r, fs in rows_eff if fs == "warning"})
+
+    # 误判户以 reviews 为准统计（早期版本判误判时把 issues 删了，
+    # 这些户在 v_issue_eff 里查不到，光按行数算会漏）
+    fp_missing = con.execute(
+        """SELECT r.id AS record_id, r.cust_no, r.cust_name, r.inspector, r.address,
+                  r.check_time, r.meter_no, v.verdict, v.note, v.note_auto,
+                  v.note_manual, v.reviewer, v.created_at
+           FROM reviews v JOIN records r ON r.id=v.record_id
+           WHERE v.company=? AND v.verdict='false_positive' AND r.sampled=1"""
+        + (" AND substr(r.check_time,1,7)=?" if month else ""), ra).fetchall()
+    fp_house = len(fp_missing)
 
     # 明细表：同一户的问题合并成一行，避免一户占好几行
     by_rec = {}
     for r, fs in rows_eff:
         by_rec.setdefault(r["record_id"], []).append((r, fs))
+
+    # 误判户补全：issues 已被清掉的户，用 reviews + records 拼一行，
+    # 保证勾上「误判已剔除」时能看到户号、审核意见和审核人
+    for r in fp_missing:
+        if r["record_id"] in by_rec:
+            continue
+        fake = {k: r[k] for k in ("record_id", "cust_no", "cust_name", "inspector",
+                                  "address", "check_time", "meter_no", "verdict", "note",
+                                  "note_auto", "note_manual", "reviewer", "created_at")}
+        fake.update({"severity": "false_positive", "eff_severity": None,
+                     "kind": "原判定已归档", "detail": "该户已由人工复核判定为误判，原始问题记录已归档",
+                     "photo_id": None, "local": None, "moved_to": None, "url": None})
+        by_rec[r["record_id"]] = [(fake, "false_positive")]
+
     trs = ""
     for rid, items in by_rec.items():
         it0 = items[0][0]
-        has_crit = any(fs == "critical" for _, fs in items)
-        badge = ('<span class="b bc">严重</span>' if has_crit
-                 else '<span class="b bw">提示</span>')
+        lv = items[0][1]                     # critical / warning / false_positive
+        lvcode = {"critical": "cr", "warning": "wa",
+                  "false_positive": "fp"}.get(lv, "wa")
+        if lv == "false_positive":
+            badge = '<span class="b bd">误判</span>'
+        elif lv == "critical":
+            badge = '<span class="b bc">严重</span>'
+        else:
+            badge = '<span class="b bw">提示</span>'
         prob_html = "".join(
             f'<div style="margin-bottom:3px"><b>{esc(i["kind"])}</b>'
-            f'<span class="b {"bc" if fs == "critical" else "bw"}" '
-            f'style="margin-left:5px">{"严重" if fs == "critical" else "提示"}</span>'
+            f'<span class="b {"bc" if fs == "critical" else ("bd" if fs == "false_positive" else "bw")}" '
+            f'style="margin-left:5px">'
+            f'{"严重" if fs == "critical" else ("误判" if fs == "false_positive" else "提示")}</span>'
             + (f'<div class="sub2">{esc(i["detail"])}</div>' if i["detail"] else "")
             + '</div>' for i, fs in items)
         # 照片：只给需要看图的问题类型配图
@@ -379,30 +499,44 @@ def render_company(con, code, month=None, embed=True):
         photo_cell = ('<div class="sub2">无照片</div>' if not pics
                       else '<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center">'
                            + "".join(pics) + '</div>')
-        # 审批状态 + 复核意见（note 是库里的数据，照实呈现，不隐藏）
-        vd = it0["verdict"]
-        if vd == "critical":
-            rv = '<span class="b bc">严重提示</span>'
-        elif vd == "warning":
-            rv = '<span class="b bw">一般提示</span>'
-        elif vd == "false_positive":
-            rv = '<span class="b bd">误判（已剔除）</span>'
-        else:
-            rv = '<span class="b bd">待复核</span>'
+        # 人工审核列：三档勾选（勾中的点亮）+ 完整批注 + 审核人/时间
+        # 2026-10-21 用户定：报告上要直接看到审核时勾了哪一个
+        vd = (it0["verdict"] or "").strip()
+        def _vb(code, cls, label):
+            on = " on" if vd == code else ""
+            return f'<span class="vbart {cls}{on}">{label}</span>'
+        rv = ('<div class="vbars">'
+              + _vb("false_positive", "fp", "误判")
+              + _vb("warning", "wa", "一般提示")
+              + _vb("critical", "cr", "严重提示")
+              + '</div>')
+        if not vd:
+            rv += '<div class="sub2">尚未人工审核</div>'
         note = (it0["note"] or "").strip()
         na = (it0["note_auto"] or "").strip()
         nm = (it0["note_manual"] or "").strip()
-        marked = bool(vd and nm)          # 只有人工真写了才算"重点核实"
-        if nm:
-            rv += f'<br><span class="warnnote">{esc(nm)}</span>'
-        elif note and note != "待复查" and not na:
-            rv += f'<br><span class="warnnote">{esc(note)}</span>'
-        if na:
-            rv += f'<div class="sub2">{esc(na)}</div>'
+        opinion = review_text(note, na, nm)
+        if opinion:
+            rv += f'<div class="aunote"><b>审核意见</b>{esc(opinion)}</div>'
+        else:
+            rv += '<div class="sub2" style="margin-top:4px">未填写审核意见</div>'
+        # 行底色跟着人工审核三选一走：严重=淡红、一般=淡黄、误判=灰、未审核=无色
+        rowcls = {"critical": "marked", "warning": "tip",
+                  "false_positive": "dropped"}.get((vd or "").strip(), "")
+        if not rowcls:
+            rowcls = "marked" if lv == "critical" else ("tip" if lv == "warning" else "dropped")
         if it0["reviewer"]:
-            rv += f'<div class="sub2">复核人 {esc(it0["reviewer"])}</div>'
+            ts = (it0["created_at"] or "")[:16]
+            rv += (f'<div class="aumeta">审核人 <b>{esc(it0["reviewer"])}</b>'
+                   + (f' · {esc(ts)}' if ts else "") + '</div>')
+        else:
+            rv += '<div class="aumeta" style="color:#8c959f">尚未人工审核</div>'
 
-        trs += f"""<tr{' class="marked"' if marked else ''}>
+        tr_cls = f' class="{rowcls}" data-lv="{lvcode}"'
+        if lvcode == "fp":
+            # 误判档默认收起：写成内联样式，即使 JS 没跑也不会混进正文
+            tr_cls += ' style="display:none"'
+        trs += f"""<tr{tr_cls}>
 <td class="ctr">{badge}</td>
 <td class="mono">{esc(it0['cust_no'])}</td>
 <td>{esc(it0['cust_name'])}</td>
@@ -439,8 +573,8 @@ def render_company(con, code, month=None, embed=True):
     # 只保留「尚有 N 户未复核」这条——它提醒报告数据还没定稿
     tip = ""
     if d["pending_review"]:
-        tip += (f'<div class="tipbar warn">尚有 <b>{d["pending_review"]}</b> 户未完成人工复核，'
-                f'标记为「待复核」的档位待确认后本报告数据会变化。</div>')
+        tip += (f'<div class="tipbar warn">尚有 <b>{d["pending_review"]}</b> 户未完成人工审核，'
+                f'标记为「待人工审核」的档位确认后本报告数据会变化。</div>')
 
     return f"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -459,8 +593,8 @@ def render_company(con, code, month=None, embed=True):
     <div class="n">户</div></div>
   <div class="kpi"><div class="v b">{d['sampled']:,}</div><div class="l">本次抽查数量</div>
     <div class="n">覆盖率 {d['rate']}%</div></div>
-  <div class="kpi"><div class="v g">{d['reviewed']}</div><div class="l">已复核户数</div>
-    <div class="n">{('待复核 ' + str(d['pending_review']) + ' 户') if d['pending_review'] else '已全部完成'}</div></div>
+  <div class="kpi"><div class="v g">{d['reviewed']}</div><div class="l">已人工审核</div>
+    <div class="n">{('待人工审核 ' + str(d['pending_review']) + ' 户') if d['pending_review'] else '已全部完成'}</div></div>
   <div class="kpi"><div class="v r">{d['critical_house']}</div><div class="l">严重问题户数</div>
     <div class="n">{crit_house} 户涉及</div></div>
   <div class="kpi"><div class="v y">{d['warning_house']}</div><div class="l">提示问题户数</div></div>
@@ -478,18 +612,30 @@ def render_company(con, code, month=None, embed=True):
 {insp_rows}</table>
 <div class="sub2" style="margin-top:7px">安检员抽查户数按其入户总数的 10% 分层抽样得出。</div>
 
-<h2>三、问题明细</h2>
-<table>
+<h2>三、抽查问题明细</h2>
+<div class="sub2" style="margin:-4px 0 10px">
+「AI 批注」为系统读图自动标注的问题；「人工审核」为集团工程部逐张复看后的结论与手写意见。
+三个档位中<b>实心高亮</b>的即本次审核勾选结果，行底色同步区分。勾选下方方框可筛选显示范围：</div>
+<div class="lvbar" id="lvFilter">
+  <label><input type="checkbox" data-lv="cr" checked><i class="sw-r"></i>严重提示<b>{crit_house}</b></label>
+  <label><input type="checkbox" data-lv="wa" checked><i class="sw-y"></i>一般提示<b>{warn_house}</b></label>
+  <label><input type="checkbox" data-lv="fp"><i class="sw-d"></i>误判已剔除<b>{fp_house}</b></label>
+  <span class="lvhint">取消勾选即隐藏该档</span>
+</div>
+<table class="hit">
 <tr><th class="ctr">等级</th><th>客户编号</th><th>客户姓名</th><th>安检员</th><th>地址</th>
-<th>安检时间</th><th>登记表号</th><th>问题描述</th><th class="ctr">照片</th><th>审批状态</th></tr>
+<th>安检时间</th><th>登记表号</th><th>AI 批注</th><th class="ctr">照片</th><th>人工审核</th></tr>
 {trs}
 </table>
-<div class="sub2" style="margin-top:7px">共 {len(by_rec)} 户存在问题，
+<div class="sub2" style="margin-top:7px">
+本次问题户 <b>{crit_house + warn_house}</b> 户（严重 {crit_house} 户、一般 {warn_house} 户）
+{f'，另有 {fp_house} 户经人工复核为误判、已从统计中剔除' if fp_house else ''}；
 {d['total_house']:,} 户中抽查 {d['sampled']:,} 户，符合率 {ok}%。</div>
 
 {foot(d['name'] + '分公司报告')}
 </div>
 {LIGHTBOX}
+{FILTER_JS}
 </body></html>"""
 
 

@@ -873,7 +873,7 @@ class Handler(__import__("http.server", fromlist=["x"]).BaseHTTPRequestHandler):
 
     # ---------- 新版报告（两级结构）----------
     def _report_overview(self, q):
-        """整体简报 + 各分公司卡片数据（报告页首屏用）"""
+        """月度情况说明 + 各分公司卡片数据（报告页首屏用）"""
         import report_data as RD
         month = q.get("month", [""])[0].strip()
         con = D.connect()
@@ -896,6 +896,7 @@ class Handler(__import__("http.server", fromlist=["x"]).BaseHTTPRequestHandler):
         口径与主界面一致（2026-10-16）：误判户从统计中剔除，判严重/提示的按裁决换档；
         需要追溯误判户时用 ?show_fp=1 显示（带「误判已剔除」标签，不计入统计）"""
         import report_data as RD
+        import report_render as RR
         month = q.get("month", [""])[0].strip()
         code = (q.get("company", [""])[0] or "").upper()
         if not code:
@@ -916,7 +917,8 @@ class Handler(__import__("http.server", fromlist=["x"]).BaseHTTPRequestHandler):
                 f"""SELECT i.severity, i.eff_severity, i.kind, i.detail, i.photo_id,
                            r.id AS record_id, r.cust_no, r.cust_name, r.inspector,
                            r.address, r.check_time, r.meter_no, p.local, p.moved_to,
-                           v.verdict, v.note, v.note_auto, v.note_manual, v.reviewer
+                           v.verdict, v.note, v.note_auto, v.note_manual, v.reviewer,
+                           v.created_at
                     FROM v_issue_eff i JOIN records r ON r.id=i.record_id
                     LEFT JOIN photos p ON p.id = COALESCE(i.photo_id,
                          (SELECT ph.id FROM photos ph WHERE ph.record_id=i.record_id
@@ -949,24 +951,29 @@ class Handler(__import__("http.server", fromlist=["x"]).BaseHTTPRequestHandler):
                 note = (it0["note"] or "").strip()
                 na = (it0["note_auto"] or "").strip()
                 nm = (it0["note_manual"] or "").strip()
-                vd = it0["verdict"]
-                marked = bool(vd and nm)      # 只有人工真写了才算「已填写复核意见」
-                if vd == "critical":
-                    vh = '<span class="tag2 bc">严重提示</span>'
-                elif vd == "warning":
-                    vh = '<span class="tag2 bw">一般提示</span>'
-                elif vd == "false_positive":
-                    vh = '<span class="tag2 bd">误判（已剔除）</span>'
+                vd = (it0["verdict"] or "").strip()
+                def _vb(code, cls, label):
+                    on = " on" if vd == code else ""
+                    return f'<span class="vbart {cls}{on}">{label}</span>'
+                vh = ('<div class="vbars">'
+                      + _vb("false_positive", "fp", "误判")
+                      + _vb("warning", "wa", "一般提示")
+                      + _vb("critical", "cr", "严重提示")
+                      + '</div>')
+                if not vd:
+                    vh += '<div class="sub2">尚未人工审核</div>'
+                # 2026-10-21：审核意见按完整原文呈现，不再区分系统建议/人工批注
+                opinion = RR.review_text(note, na, nm)
+                if opinion:
+                    vh += f'<div class="aunote"><b>审核意见</b>{html.escape(opinion)}</div>'
                 else:
-                    vh = '<span class="tag2 bd">待复核</span>'
-                if nm:
-                    vh += f'<br><span class="warnnote">{html.escape(nm)}</span>'
-                elif note and note != "待复查" and not na:
-                    vh += f'<br><span class="warnnote">{html.escape(note)}</span>'
-                if na:
-                    vh += f'<div class="sub2">{html.escape(na)}</div>'
+                    vh += '<div class="sub2">未填写审核意见</div>'
                 if it0["reviewer"]:
-                    vh += f'<div class="sub2">复核人 {html.escape(it0["reviewer"])}</div>'
+                    ts = (it0["created_at"] or "")[:16]
+                    vh += (f'<div class="aumeta">审核人 <b>{html.escape(it0["reviewer"])}</b>'
+                           + (f' · {html.escape(ts)}' if ts else "") + '</div>')
+                else:
+                    vh += '<div class="aumeta" style="color:#8c959f">尚未人工审核</div>'
                 ilist = [{"kind": i["kind"], "detail": i["detail"],
                           "severity": i["eff_severity"] or i["severity"]} for i in items]
                 out.append({
@@ -976,7 +983,9 @@ class Handler(__import__("http.server", fromlist=["x"]).BaseHTTPRequestHandler):
                     "meter_no": it0["meter_no"],
                     "has_critical": any(x["severity"] == "critical" for x in ilist),
                     "issues": ilist,
-                    "photos": pics, "verdict": vd, "verdict_html": vh, "marked": marked,
+                    "photos": pics, "verdict": vd, "verdict_html": vh,
+                    "level": (vd or "").strip(),
+                    "marked": (vd or "").strip() in ("critical", "warning"),
                 })
             return {"company": code, "month": month, "rows": out,
                     "count": len(out), "problems": len(rows),
@@ -988,7 +997,7 @@ class Handler(__import__("http.server", fromlist=["x"]).BaseHTTPRequestHandler):
         """生成报告并返回文件流
         inline=True（/api/report/view）：Content-Disposition 省略，让浏览器直接显示
         → 详情页用 iframe 内嵌它，看到的和下载的完全是同一份
-        ?type=summary  整体简报
+        ?type=summary  月度情况说明
         ?type=company&code=C5   单个分公司
         """
         import report_data as RD
@@ -1015,7 +1024,7 @@ class Handler(__import__("http.server", fromlist=["x"]).BaseHTTPRequestHandler):
                     html = RR.render_summary(stats, month, embed=embed)
                 finally:
                     con.close()
-                fname = self._fname(f"安检抽查月度报告_整体简报_{RR.month_label(month)}")
+                fname = self._fname(f"安检抽查月度情况说明_{RR.month_label(month)}")
         except Exception as e:
             return self._json({"ok": False, "msg": f"{type(e).__name__}: {e}"}, 500)
 

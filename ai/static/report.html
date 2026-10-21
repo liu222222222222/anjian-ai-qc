@@ -61,11 +61,11 @@ h2.sect small{font-weight:400;color:var(--dim);font-size:11.5px;margin-left:8px}
       <div><label>月份</label><input id="month" placeholder="如 2026-09" value="2026-09"></div>
       <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
         <button class="btn pri" id="btnLoad">查询</button>
-        <button class="btn" id="btnDlSum">下载整体简报</button>
+        <button class="btn" id="btnDlSum">下载情况说明</button>
       </div>
     </div>
     <div class="hint">
-      「整体简报」给董事会看，含各分公司汇总与结论；点任一分公司卡片进入该公司报告详情，
+      「情况说明」为集团月度汇总，含各分公司数据与结论；点任一分公司卡片进入该公司报告详情，
       卡片右上角的「下载」导出这家公司报告（图片走安检系统原图链接，文件只有几百KB，需联网看图）；
       「离线版」把照片内嵌进文件（几十MB），发给没网的人也能打开。
     </div>
@@ -113,17 +113,17 @@ async function load(){
 function renderSum(d){
   const s=d.summary;
   const cell=(v,l,c)=>`<div><div class="v ${c||''}">${v}</div><div class="l">${l}</div></div>`;
-  const pend=s.pending?cell(s.pending+' 户','待复核','d'):'';
+  const pend=s.pending?cell(s.pending+' 户','待人工审核','d'):'';
   $('sumBox').innerHTML=`
   <div class="sumcard">
-    <h1>燃气入户安检抽查 · 月度报告</h1>
-    <div class="sm">${d.month?d.month.replace('-','年')+'月':'本月'} · 整体简报
+    <h1>燃气入户安检抽查 · 月度情况说明</h1>
+    <div class="sm">${d.month?d.month.replace('-','年')+'月':'本月'} · 情况说明
       · 覆盖 ${s.company_count} 家分公司 · 生成于 ${s.generated}</div>
     <div class="sumgrid">
       ${cell(s.total_house.toLocaleString()+' 户','当月入户安检总数')}
       ${cell(s.sampled.toLocaleString()+' 户','本次抽查数量')}
       ${cell(s.rate+'%','抽查覆盖率')}
-      ${cell(s.reviewed+' 户','已复核户数')}
+      ${cell(s.reviewed+' 户','已人工审核')}
       ${cell(s.critical_house+' 户','严重问题户数')}
       ${cell(s.warning_house+' 户','提示问题户数')}
       ${cell(s.problem_house+' 户','问题涉及总户数')}
@@ -148,7 +148,7 @@ function renderComp(d){
         <button class="btn pri" onclick="event.stopPropagation();openCo('${c.code}',1)">查看报告</button>
       </div>
       <div class="hd"><h3>${c.name}</h3>
-        ${c.pending_review>0?`<span class="tag2 t-wait">待复核 ${c.pending_review} 户</span>`
+        ${c.pending_review>0?`<span class="tag2 t-wait">待人工审核 ${c.pending_review} 户</span>`
                           :`<span class="tag2 t-on">复核已完成</span>`}
         ${c.fp_excluded?`<span class="tag2 t-off">误判剔除 ${c.fp_excluded} 户</span>`:''}
       </div>
@@ -156,7 +156,7 @@ function renderComp(d){
         ${mc(c.total_house.toLocaleString(),'当月入户','b')}
         ${mc(c.sampled,'本次抽查','b')}
         ${mc(c.rate+'%','覆盖率','d')}
-        ${mc(c.reviewed,'已复核户数','g')}
+        ${mc(c.reviewed,'已人工审核','g')}
         ${mc(c.critical_house,'严重问题户','r')}
         ${mc(c.warning_house,'提示问题户','y')}
       </div>

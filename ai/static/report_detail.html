@@ -30,8 +30,8 @@ iframe{width:100%;height:calc(100vh - 118px);border:none;background:#f4f6f8;disp
   <span class="t" id="tName">分公司报告</span>
   <span class="s" id="tMeta"></span>
   <span class="sp"></span>
-  <button class="btn" onclick="history.back()">返回列表</button>
-  <button class="btn" onclick="frame.src=frame.src">刷新</button>
+  <button class="btn" id="btnBack">返回列表</button>
+  <button class="btn" id="btnRefresh">刷新</button>
   <button class="btn" id="btnReview">去人工复核</button>
   <button class="btn pri" id="btnDl">下载这份报告</button>
   <span id="dlMsg"></span>
@@ -74,9 +74,9 @@ async function init(){
     $('tMeta').textContent=(MONTH?MONTH.replace('-','年')+'月':'本月')
       +' · 入户 '+c.total_house.toLocaleString()+' 户 / 抽查 '+c.sampled+' 户'
       +' / 严重 '+c.critical_house+' 户 / 提示 '+c.warning_house+' 户'
-      +' / 已复核 '+c.reviewed+' 户'
+      +' / 已人工审核 '+c.reviewed+' 户'
       +(c.fp_excluded?(' / 其中误判剔除 '+c.fp_excluded+' 户'):'')
-      +(c.pending_review?(' / 待复核 '+c.pending_review+' 户'):'');
+      +(c.pending_review?(' / 待人工审核 '+c.pending_review+' 户'):'');
   }else{
     $('tName').textContent=CODE;
   }
@@ -87,5 +87,16 @@ async function init(){
   frame.src='/api/report/view?type=company&code='+CODE+'&month='+encodeURIComponent(MONTH);
 }
 init();
+
+// 返回列表 / 刷新：不能用 history.back()——从卡片「查看报告」是新标签页打开时
+// history 是空的，点了毫无反应。直接按月份跳回报告列表页。
+$('btnBack').onclick=()=>{
+  location.href='/report'+(MONTH?('?month='+encodeURIComponent(MONTH)):'');
+};
+$('btnRefresh').onclick=()=>{
+  if(!CODE) return;
+  frame.src='/api/report/view?type=company&code='+CODE
+    +'&month='+encodeURIComponent(MONTH)+'&_='+Date.now();
+};
 </script>
 </body></html>
