@@ -1,0 +1,14 @@
+{
+  "model_source": "openai_compat",
+  "model_id": "",
+  "api_base": "https://api.deepseek.com",
+  "api_key": "",
+  "thinking": "disabled",
+  "sample_ratio": 0.1,
+  "min_per_inspector": 1,
+  "workers": 3,
+  "max_attempts": 6,
+  "cost_limit": 0,
+  "pending_keep_days": 30,
+  "similarity_threshold": 0.7
+}

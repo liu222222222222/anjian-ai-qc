@@ -1,0 +1,183 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>月度报告 · 安检抽查系统</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+/* ---------- 报告页专用 ---------- */
+.sumcard{background:linear-gradient(135deg,#1668dc,#0e4fa8);color:#fff;border-radius:14px;
+  padding:22px 26px;margin-bottom:20px;box-shadow:0 4px 16px rgba(22,104,220,.18)}
+.sumcard h1{margin:0 0 4px;font-size:21px;font-weight:700}
+.sumcard .sm{opacity:.86;font-size:12.5px}
+.sumgrid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));margin-top:18px}
+.sumgrid div{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);
+  border-radius:9px;padding:12px 14px}
+.sumgrid .v{font-size:26px;font-weight:700;line-height:1.15}
+.sumgrid .l{font-size:11.5px;opacity:.86;margin-top:2px}
+.sumtext{margin-top:16px;background:rgba(255,255,255,.12);border-radius:9px;
+  padding:13px 16px;font-size:13.5px;line-height:1.95}
+
+.cobox{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:17px 20px;margin-bottom:13px;transition:.15s;cursor:pointer;position:relative}
+.cobox:hover{border-color:var(--blue);box-shadow:0 3px 12px rgba(22,104,220,.1);transform:translateY(-1px)}
+.cobox.off{opacity:.5;cursor:default}
+.cobox.off:hover{border-color:var(--line);box-shadow:none;transform:none}
+.cobox .hd{display:flex;align-items:center;gap:11px;margin-bottom:9px;flex-wrap:wrap;padding-right:190px}
+.cobox .hd h3{margin:0;font-size:16.5px;font-weight:700}
+.cobox .metrics{display:grid;gap:9px;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));
+  margin:11px 0 10px}
+.cobox .metrics div{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  padding:9px 10px;text-align:center}
+.cobox .metrics .v{font-size:20px;font-weight:700;line-height:1.2}
+.cobox .metrics .l{font-size:10.5px;color:var(--dim);margin-top:2px}
+.cobox .txt{color:var(--txt);font-size:13px;line-height:1.9}
+.cobox .acts{position:absolute;top:16px;right:18px;display:flex;gap:7px}
+.tag2{font-size:11px;padding:2px 9px;border-radius:11px;border:1px solid}
+.t-off{background:var(--panel2);color:var(--dim);border-color:var(--line)}
+.t-on{background:#f6ffed;color:#237804;border-color:#b7eb8f}
+.t-wait{background:var(--yellowbg);color:var(--yellow);border-color:#f0d999}
+.v.r{color:var(--red)}.v.y{color:var(--yellow)}.v.g{color:var(--green)}.v.b{color:var(--blue)}.v.d{color:var(--dim)}
+.bar{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--blue)}
+.bar i.r{background:var(--red)}.bar i.y{background:var(--yellow)}.bar i.g{background:var(--green)}
+h2.sect{font-size:16px;margin:24px 0 12px;padding-left:10px;border-left:4px solid var(--blue)}
+h2.sect small{font-weight:400;color:var(--dim);font-size:11.5px;margin-left:8px}
+</style></head><body>
+
+<header>
+  <div class="brand">⚡ 安检照片<em>AI质检</em></div>
+  <nav>
+    <a href="/">运行</a>
+    <a href="/live">实时看板</a>
+    <a href="/report" class="on">月度报告</a>
+    <a href="/review">人工复核</a>
+    <a href="/settings">设置</a>
+  </nav>
+  <div class="sp"></div>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <div class="row c4">
+      <div><label>月份</label><input id="month" placeholder="如 2026-09" value="2026-09"></div>
+      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <button class="btn pri" id="btnLoad">查询</button>
+        <button class="btn" id="btnDlSum">下载整体简报</button>
+      </div>
+    </div>
+    <div class="hint">
+      「整体简报」给董事会看，含各分公司汇总与结论；点任一分公司卡片进入该公司报告详情，
+      卡片右上角的「下载」导出这家公司报告（图片走安检系统原图链接，文件只有几百KB，需联网看图）；
+      「离线版」把照片内嵌进文件（几十MB），发给没网的人也能打开。
+    </div>
+    <div id="dlMsg" style="margin-top:8px"></div>
+  </div>
+
+  <div id="sumBox"><div class="hint">读取中…</div></div>
+
+  <h2 class="sect">各分公司情况<small>点卡片进入该公司报告详情</small></h2>
+  <div id="compBox"><div class="hint">读取中…</div></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+
+function dl(url, btn){
+  if(btn){btn.dataset.o=btn.textContent;btn.disabled=true;btn.textContent='生成中…';}
+  $('dlMsg').innerHTML='<span class="spin"></span> 正在生成报告并下载…';
+  fetch(url).then(r=>{
+    if(!r.ok) return r.json().then(j=>{throw new Error(j.msg||r.status)});
+    const cd=r.headers.get('Content-Disposition')||'';
+    let name='report.html';
+    const m=cd.match(/filename\*=UTF-8''([^;]+)/);
+    if(m) name=decodeURIComponent(m[1]);
+    else { const m2=cd.match(/filename="?([^";]+)/); if(m2) name=m2[1]; }
+    return r.blob().then(b=>({b,name}));
+  }).then(({b,name})=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b); a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+    $('dlMsg').innerHTML=`<span class="tag2 t-on">✓ 已下载 ${name}（${(b.size/1048576).toFixed(1)} MB）</span>`;
+  }).catch(e=>{
+    $('dlMsg').innerHTML=`<span class="tag2 t-wait">✗ ${e.message||e}</span>`;
+  }).finally(()=>{ if(btn){btn.disabled=false;btn.textContent=btn.dataset.o||'下载';} });
+}
+
+async function load(){
+  $('sumBox').innerHTML='<div class="hint">读取中…</div>';
+  $('compBox').innerHTML='<div class="hint">读取中…</div>';
+  const m=$('month').value.trim();
+  const d=await (await fetch('/api/report/overview?month='+encodeURIComponent(m))).json();
+  renderSum(d); renderComp(d);
+}
+
+function renderSum(d){
+  const s=d.summary;
+  const cell=(v,l,c)=>`<div><div class="v ${c||''}">${v}</div><div class="l">${l}</div></div>`;
+  const pend=s.pending?cell(s.pending+' 户','待复核','d'):'';
+  $('sumBox').innerHTML=`
+  <div class="sumcard">
+    <h1>燃气入户安检抽查 · 月度报告</h1>
+    <div class="sm">${d.month?d.month.replace('-','年')+'月':'本月'} · 整体简报
+      · 覆盖 ${s.company_count} 家分公司 · 生成于 ${s.generated}</div>
+    <div class="sumgrid">
+      ${cell(s.total_house.toLocaleString()+' 户','当月入户安检总数')}
+      ${cell(s.sampled.toLocaleString()+' 户','本次抽查数量')}
+      ${cell(s.rate+'%','抽查覆盖率')}
+      ${cell(s.reviewed+' 户','已复核户数')}
+      ${cell(s.critical_house+' 户','严重问题户数')}
+      ${cell(s.warning_house+' 户','提示问题户数')}
+      ${cell(s.problem_house+' 户','问题涉及总户数')}
+      ${cell(s.ok_rate+'%','抽查符合率')}
+      ${pend}
+    </div>
+  </div>`;
+}
+
+function renderComp(d){
+  $('compBox').innerHTML=d.companies.map(c=>{
+    if(c.total_house===0 && c.sampled===0){
+      return `<div class="cobox off">
+        <div class="hd"><h3>${c.name}</h3><span class="tag2 t-off">本月未导入数据</span></div>
+        <div class="txt dim">该分公司本月尚未导入安检明细表。</div></div>`;
+    }
+    const mc=(v,l,cls)=>`<div><div class="v ${cls}">${v}</div><div class="l">${l}</div></div>`;
+    return `<div class="cobox" onclick="openCo('${c.code}')">
+      <div class="acts">
+        <button class="btn" title="图片用安检系统原图链接，文件几百KB，需联网查看" onclick="event.stopPropagation();dl('/api/report/download?type=company&code=${c.code}&month='+encodeURIComponent($('month').value.trim()),this)">下载</button>
+        <button class="btn" title="照片内嵌进文件，几十MB，发给没网的人也能看" onclick="event.stopPropagation();dl('/api/report/download?type=company&code=${c.code}&month='+encodeURIComponent($('month').value.trim())+'&embed=1',this)">离线版</button>
+        <button class="btn pri" onclick="event.stopPropagation();openCo('${c.code}',1)">查看报告</button>
+      </div>
+      <div class="hd"><h3>${c.name}</h3>
+        ${c.pending_review>0?`<span class="tag2 t-wait">待复核 ${c.pending_review} 户</span>`
+                          :`<span class="tag2 t-on">复核已完成</span>`}
+        ${c.fp_excluded?`<span class="tag2 t-off">误判剔除 ${c.fp_excluded} 户</span>`:''}
+      </div>
+      <div class="metrics">
+        ${mc(c.total_house.toLocaleString(),'当月入户','b')}
+        ${mc(c.sampled,'本次抽查','b')}
+        ${mc(c.rate+'%','覆盖率','d')}
+        ${mc(c.reviewed,'已复核户数','g')}
+        ${mc(c.critical_house,'严重问题户','r')}
+        ${mc(c.warning_house,'提示问题户','y')}
+      </div>
+      <div class="bar"><i class="${c.critical_house?'r':(c.warning_house?'y':'g')}"
+        style="width:${Math.min(100,(c.problem_house*100/c.sampled)||0)}%"></i></div>
+    </div>`;
+  }).join('');
+}
+
+function openCo(code, newTab){
+  const u='/report/detail?company='+code+'&month='+encodeURIComponent($('month').value.trim());
+  if(newTab) window.open(u,'_blank');
+  else location.href=u;
+}
+
+$('btnLoad').onclick=load;
+$('btnDlSum').onclick=e=>dl('/api/report/download?type=summary&month='
+  +encodeURIComponent($('month').value.trim()), e.target);
+
+const q=new URLSearchParams(location.search);
+if(q.get('month')) $('month').value=q.get('month');
+load();
+</script>
+</body></html>

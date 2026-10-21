@@ -1,0 +1,91 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>分公司报告详情 · 安检抽查</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+/* 工具条：sticky 固定在顶部，不随iframe 滚动 */
+.tools{position:sticky;top:56px;z-index:90;background:var(--bg);
+  padding:10px 22px;border-bottom:1px solid var(--line);display:flex;gap:10px;
+  align-items:center;flex-wrap:wrap}
+.tools .t{font-size:17px;font-weight:700;color:var(--hi)}
+.tools .s{font-size:12.5px;color:var(--dim)}
+.tools .sp{flex:1}
+iframe{width:100%;height:calc(100vh - 118px);border:none;background:#f4f6f8;display:block}
+.hint{padding:40px;text-align:center;color:var(--dim)}
+</style></head><body>
+
+<header>
+  <div class="brand">⚡ 安检照片<em>AI质检</em></div>
+  <nav>
+    <a href="/">运行</a>
+    <a href="/live">实时看板</a>
+    <a href="/report" class="on">月度报告</a>
+    <a href="/review">人工复核</a>
+    <a href="/settings">设置</a>
+  </nav>
+  <div class="sp"></div>
+</header>
+
+<div class="tools">
+  <span class="t" id="tName">分公司报告</span>
+  <span class="s" id="tMeta"></span>
+  <span class="sp"></span>
+  <button class="btn" onclick="history.back()">返回列表</button>
+  <button class="btn" onclick="frame.src=frame.src">刷新</button>
+  <button class="btn" id="btnReview">去人工复核</button>
+  <button class="btn pri" id="btnDl">下载这份报告</button>
+  <span id="dlMsg"></span>
+</div>
+
+<iframe id="frame" title="报告内容"></iframe>
+
+<script>
+const $=id=>document.getElementById(id);
+const q=new URLSearchParams(location.search);
+const CODE=(q.get('company')||'').toUpperCase();
+const MONTH=q.get('month')||'';
+const frame=$('frame');
+
+function dl(url, btn){
+  if(btn){btn.dataset.o=btn.textContent;btn.disabled=true;btn.textContent='生成中…';}
+  $('dlMsg').innerHTML='<span class="spin"></span> 生成中…';
+  fetch(url).then(r=>{
+    if(!r.ok) return r.json().then(j=>{throw new Error(j.msg||r.status)});
+    const cd=r.headers.get('Content-Disposition')||'';
+    let name='report.html';
+    const m=cd.match(/filename\*=UTF-8''([^;]+)/);
+    if(m) name=decodeURIComponent(m[1]);
+    return r.blob().then(b=>({b,name}));
+  }).then(({b,name})=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b); a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+    $('dlMsg').innerHTML=`<span class="tag g">✓ ${name}（${(b.size/1048576).toFixed(1)} MB）</span>`;
+  }).catch(e=>{ $('dlMsg').innerHTML=`<span class="tag r">✗ ${e.message||e}</span>`; })
+    .finally(()=>{ if(btn){btn.disabled=false;btn.textContent=btn.dataset.o||'下载这份报告';} });
+}
+
+async function init(){
+  if(!CODE){ frame.innerHTML='<div class="hint">缺少 company 参数</div>'; return; }
+  const d=await (await fetch('/api/report/overview?month='+encodeURIComponent(MONTH))).json();
+  const c=d.companies.find(x=>x.code===CODE);
+  if(c){
+    $('tName').textContent=c.name+' · 安检抽查报告';
+    $('tMeta').textContent=(MONTH?MONTH.replace('-','年')+'月':'本月')
+      +' · 入户 '+c.total_house.toLocaleString()+' 户 / 抽查 '+c.sampled+' 户'
+      +' / 严重 '+c.critical_house+' 户 / 提示 '+c.warning_house+' 户'
+      +' / 已复核 '+c.reviewed+' 户'
+      +(c.fp_excluded?(' / 其中误判剔除 '+c.fp_excluded+' 户'):'')
+      +(c.pending_review?(' / 待复核 '+c.pending_review+' 户'):'');
+  }else{
+    $('tName').textContent=CODE;
+  }
+  $('btnDl').onclick=e=>dl('/api/report/download?type=company&code='+CODE
+    +'&month='+encodeURIComponent(MONTH), e.target);
+  $('btnReview').onclick=()=>location.href='/review?company='+CODE+'&month='+MONTH;
+  // 关键：用 iframe 内嵌 /api/report/view —— 与下载走同一个渲染函数，所见即所得
+  frame.src='/api/report/view?type=company&code='+CODE+'&month='+encodeURIComponent(MONTH);
+}
+init();
+</script>
+</body></html>

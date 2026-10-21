@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 400" width="680" height="400" font-family="'Microsoft YaHei','PingFang SC',sans-serif">
+  <rect width="680" height="400" fill="#f7f9fc"/>
+
+  <text x="24" y="34" font-size="17" font-weight="700" fill="#1f2733">安检照片 AI 质检系统 · 数据流</text>
+  <text x="24" y="54" font-size="11.5" fill="#6b7684">识别由 Agent 亲自读图完成，不调用外部视觉 API</text>
+
+  <!-- 1 数据源 -->
+  <rect x="24" y="76" width="140" height="72" rx="8" fill="#ffffff" stroke="#d6e0ec"/>
+  <text x="94" y="100" font-size="12.5" font-weight="700" fill="#1f2733" text-anchor="middle">安检明细 Excel</text>
+  <text x="94" y="119" font-size="10.5" fill="#6b7684" text-anchor="middle">只取「入户」</text>
+  <text x="94" y="135" font-size="10.5" fill="#6b7684" text-anchor="middle">同客户取最新</text>
+
+  <!-- 2 抽样下载 -->
+  <rect x="188" y="76" width="140" height="72" rx="8" fill="#ffffff" stroke="#d6e0ec"/>
+  <text x="258" y="100" font-size="12.5" font-weight="700" fill="#1f2733" text-anchor="middle">分层抽样 + 下载</text>
+  <text x="258" y="119" font-size="10.5" fill="#6b7684" text-anchor="middle">每安检员 10%</text>
+  <text x="258" y="135" font-size="10.5" fill="#6b7684" text-anchor="middle">原图免认证直连</text>
+
+  <!-- 3 读图判定 -->
+  <rect x="352" y="76" width="140" height="72" rx="8" fill="#eef4ff" stroke="#1668dc" stroke-width="1.6"/>
+  <text x="422" y="100" font-size="12.5" font-weight="700" fill="#0e4fa8" text-anchor="middle">Agent 逐户读图</text>
+  <text x="422" y="119" font-size="10.5" fill="#3b6ba5" text-anchor="middle">表号 / 水印时间</text>
+  <text x="422" y="135" font-size="10.5" fill="#3b6ba5" text-anchor="middle">场景 / 隐患 / 连拍</text>
+
+  <!-- 4 落库 -->
+  <rect x="516" y="76" width="140" height="72" rx="8" fill="#ffffff" stroke="#d6e0ec"/>
+  <text x="586" y="100" font-size="12.5" font-weight="700" fill="#1f2733" text-anchor="middle">SQLite 落库</text>
+  <text x="586" y="119" font-size="10.5" fill="#6b7684" text-anchor="middle">issues 明细</text>
+  <text x="586" y="135" font-size="10.5" fill="#6b7684" text-anchor="middle">照片三联分拣</text>
+
+  <!-- 箭头 -->
+  <g stroke="#9aa8b8" stroke-width="1.4" fill="none" marker-end="url(#a)">
+    <path d="M164 112 H184"/>
+    <path d="M328 112 H348"/>
+    <path d="M492 112 H512"/>
+  </g>
+  <defs>
+    <marker id="a" markerWidth="7" markerHeight="7" refX="5.5" refY="3" orient="auto">
+      <path d="M0 0 L6 3 L0 6 z" fill="#9aa8b8"/>
+    </marker>
+  </defs>
+
+  <!-- 判定口径 -->
+  <rect x="24" y="172" width="300" height="96" rx="8" fill="#ffffff" stroke="#d6e0ec"/>
+  <text x="40" y="194" font-size="12.5" font-weight="700" fill="#d4380d">critical（必须整改）</text>
+  <text x="40" y="213" font-size="10.5" fill="#39424f">表号与档案不一致 · 水印与工单差 ≥168h</text>
+  <text x="40" y="230" font-size="10.5" fill="#39424f">手写日期异常 · 非燃气安检现场 · 重大隐患</text>
+  <text x="40" y="252" font-size="12.5" font-weight="700" fill="#b7791f">warning（提示）</text>
+  <text x="40" y="268" font-size="10.5" fill="#39424f">表号无法辨认 · 同检查项连拍重复</text>
+
+  <!-- 阈值单点 -->
+  <rect x="348" y="172" width="308" height="96" rx="8" fill="#f6ffed" stroke="#b7eb8f"/>
+  <text x="364" y="194" font-size="12.5" font-weight="700" fill="#237804">口径单点：168 小时</text>
+  <text x="364" y="214" font-size="10.5" fill="#39424f">定义在 ai/db.py 的 TIME_GAP_MIN，改一处全系统生效。</text>
+  <text x="364" y="232" font-size="10.5" fill="#39424f">gap ≥ 168h → critical；&lt; 168h 不标记</text>
+  <text x="364" y="250" font-size="10.5" fill="#39424f">（先拍照后补工单属正常）</text>
+
+  <!-- 下游 -->
+  <rect x="24" y="288" width="200" height="80" rx="8" fill="#ffffff" stroke="#d6e0ec"/>
+  <text x="124" y="311" font-size="12.5" font-weight="700" fill="#1f2733" text-anchor="middle">人工复核 /review</text>
+  <text x="124" y="330" font-size="10.5" fill="#6b7684" text-anchor="middle">误判 / 一般提示 / 严重提示</text>
+  <text x="124" y="347" font-size="10.5" fill="#6b7684" text-anchor="middle">误判不删 issue，置 active=0 留档</text>
+
+  <rect x="240" y="288" width="200" height="80" rx="8" fill="#ffffff" stroke="#d6e0ec"/>
+  <text x="340" y="311" font-size="12.5" font-weight="700" fill="#1f2733" text-anchor="middle">报告渲染 /report</text>
+  <text x="340" y="330" font-size="10.5" fill="#6b7684" text-anchor="middle">纯 SQL + 模板</text>
+  <text x="340" y="347" font-size="10.5" fill="#6b7684" text-anchor="middle">零大模型调用，同库同报告</text>
+
+  <rect x="456" y="288" width="200" height="80" rx="8" fill="#ffffff" stroke="#d6e0ec"/>
+  <text x="556" y="311" font-size="12.5" font-weight="700" fill="#1f2733" text-anchor="middle">实时看板 /live</text>
+  <text x="556" y="330" font-size="10.5" fill="#6b7684" text-anchor="middle">大字进度 + 问题流</text>
+  <text x="556" y="347" font-size="10.5" fill="#6b7684" text-anchor="middle">SSE 推送，给领导投影</text>
+</svg>

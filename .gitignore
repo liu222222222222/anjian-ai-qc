@@ -1,0 +1,43 @@
+# ---------- 运行数据（含隐私，绝不入库） ----------
+ai/db.sqlite3
+ai/db.sqlite3-*
+ai/db.sqlite3.bak*
+ai/backups/
+ai/config.json
+ai/photos/
+ai/pending_delete/
+ai/false_positive/
+ai/reports/
+ai/models/_probe.jpg
+ai/server_run.log
+ai/_tmp*/
+ai/_probe/
+ai/_verify/
+
+# ---------- 数据源 ----------
+安检表格/
+*.xlsx
+*.xls
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---------- 本地工具目录 ----------
+.workbuddy/
+others/
+output/
+公众号素材/
+测试集_模型评测/

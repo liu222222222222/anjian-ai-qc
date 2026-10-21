@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>人工复核 · 安检抽查系统</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+body{overflow:hidden;display:flex;flex-direction:column;height:100vh}
+header{flex:none}
+.vtop{display:flex;align-items:center;gap:16px;padding:11px 24px;background:var(--panel);
+  border-bottom:1px solid var(--line);flex:none}
+.vtop h1{font-size:17px;margin:0;white-space:nowrap}
+.vtop .prog{flex:1;max-width:340px}
+.vtop .prog .bar2{margin:5px 0 2px}
+.main{display:grid;grid-template-columns:1fr 420px;gap:16px;padding:16px 24px;
+  flex:1;min-height:0}
+@media(max-width:1360px){.main{grid-template-columns:1fr 400px}}
+@media(min-width:1700px){.main{grid-template-columns:1fr 470px}}
+.lbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:16px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.lhead{display:flex;align-items:flex-start;gap:18px;padding-bottom:12px;
+  border-bottom:1px solid var(--line);margin-bottom:12px;flex:none}
+.cnum{font-size:30px;font-weight:700;color:var(--hi);font-family:Consolas,monospace;line-height:1.2}
+.cname{font-size:18px;color:var(--blue);font-weight:600}
+.cmeta{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.8}
+.lmeta{font-size:13px;margin-left:auto;text-align:right}
+.lmeta div{margin-bottom:3px}
+.lmeta b{color:var(--hi)}
+.photos{flex:1;overflow-y:auto;align-content:start;padding-right:4px}
+.side{display:flex;flex-direction:column;gap:10px;min-height:0;overflow-y:auto;overflow-x:hidden;
+  padding-right:2px}
+.side::-webkit-scrollbar{width:6px}
+.side::-webkit-scrollbar-thumb{background:#d3d9e0;border-radius:3px}
+.side::-webkit-scrollbar-thumb:hover{background:#b9c2cc}
+
+/* 卡片壳：标题固定 / 内容区滚动 / 操作固定 */
+.sbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.sbox>.hd{display:flex;align-items:center;gap:7px;padding:11px 14px 9px;flex:none}
+.sbox>.hd h3{font-size:12px;letter-spacing:.8px;color:var(--hi);margin:0;font-weight:700}
+.sbox>.hd .n{font:600 10.5px/1 Consolas,monospace;color:var(--dim);background:var(--panel2);
+  border:1px solid var(--line);border-radius:999px;padding:3px 7px}
+.sbox>.hd .sub{margin-left:auto;font-size:10.5px;color:#a0a8b3;font-weight:400}
+
+/* ① 系统问题 */
+.issuecard{flex:0 0 auto}
+.issuecard .bd{max-height:178px}
+.issuecard .bd{padding:0 12px 12px;overflow-y:auto;min-height:0;flex:1 1 auto}
+.ilist{display:flex;flex-direction:column;gap:6px}
+.iitem{position:relative;padding:7px 9px 7px 12px;border-radius:7px;
+  background:var(--panel2);border:1px solid var(--line)}
+.iitem::before{content:'';position:absolute;left:0;top:7px;bottom:7px;width:3px;
+  border-radius:0 3px 3px 0;background:var(--dim)}
+.iitem.critical{background:#fffaf9;border-color:#ffdcd4}
+.iitem.critical::before{background:var(--red)}
+.iitem.warning{background:#fffdf5;border-color:#f2e3b8}
+.iitem.warning::before{background:var(--yellow)}
+.iitem .ih{display:flex;align-items:baseline;gap:6px}
+.iitem .ih b{font-size:12.5px;font-weight:600;color:var(--hi);line-height:1.45}
+.iitem .where{margin-left:auto;flex:none;font-size:10px;color:var(--dim);
+  background:#fff;border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+  white-space:nowrap;transform:translateY(-1px)}
+.iitem .idt{margin-top:2px;font-size:11.5px;color:#5d6773;line-height:1.65;word-break:break-word}
+.iitem .idt em{font-style:normal;font-weight:700;color:var(--red);font-family:Consolas,monospace}
+.iitem.warning .idt em{color:var(--yellow)}
+
+/* ② 人工复核 */
+.formcard{flex:0 0 auto;min-height:0}
+.sbox>.hd{padding:7px 14px 6px}
+.vdrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:0 14px 7px;flex:none}
+.vdrow .vd{position:relative;display:flex;flex-direction:column;align-items:center;gap:0;
+  padding:4px 3px 3px;border:1.5px solid var(--line);border-radius:8px;background:#fff;
+  cursor:pointer;transition:.12s;font-family:inherit;line-height:1.3}
+.vdrow .vd b{font-size:12px;font-weight:700}
+.vdrow .vd span{font-size:10px;color:var(--dim)}
+.vdrow .vd i{position:absolute;top:3px;right:5px;font:9.5px/1 Consolas,monospace;
+  font-style:normal;color:#c6ccd4;transition:.12s}
+.vdrow .vd:hover{border-color:var(--blue)}
+.vdrow .vd.fp b{color:#8c8c8c}
+.vdrow .vd.wa b{color:var(--yellow)}
+.vdrow .vd.cr b{color:var(--red)}
+.vdrow .vd.fp.on{background:#f7f7f8;border-color:#a8a8a8}
+.vdrow .vd.wa.on{background:var(--yellowbg);border-color:var(--yellow)}
+.vdrow .vd.cr.on{background:var(--redbg);border-color:var(--red)}
+.vdrow .vd.on i{color:currentColor;opacity:.5}
+
+.fbody{flex:0 0 auto;min-height:0;padding:0 14px 8px}
+#note{height:72px;min-height:72px;resize:none;font-size:12.5px;line-height:1.7;padding:6px 9px}
+#note.hint{border-color:#ffccc7;background:#fff1f0;color:#a8071a}
+
+/* 自动识别段：一行轻量说明，视觉上不抢手写内容 */
+.autoline{display:flex;align-items:baseline;gap:5px;margin:5px 0 6px;
+  font-size:11px;line-height:1.55}
+.autoline .albl{flex:none;font-size:10px;color:#a8aeb8;letter-spacing:.4px}
+.autoline .atext{flex:1;color:#5d6773;word-break:break-word}
+.autoline .atext.none{color:#b6bcc5;font-style:italic}
+
+/* 现场问题多选 */
+.tagsec{border-top:1px dashed var(--line);padding:6px 0 0}
+.tglabel{display:flex;align-items:center;gap:5px;font-size:10px;color:#a8aeb8;
+  letter-spacing:.4px;margin-bottom:4px}
+.tglabel em{font-style:normal;color:#c6ccd4}
+.tags{display:flex;flex-wrap:wrap;gap:4px}
+.tg{padding:2px 7px;border:1px solid var(--line);border-radius:6px;background:#fff;
+  font-size:11px;color:var(--txt);cursor:pointer;user-select:none;transition:.12s;line-height:1.55}
+.tg:hover{border-color:var(--blue);color:var(--blue)}
+.tg.on{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 1px 4px rgba(22,104,220,.25)}
+.tg.on:hover{color:#fff}
+
+/* 底部操作栏 */
+.sbox>.hd .hbtns{margin-left:auto;display:flex;gap:4px}
+.sbox>.hd .hbtns button{padding:0;width:24px;height:21px;line-height:1;
+  font-size:15px;border-radius:5px;color:var(--dim)}
+.sbox>.hd .hbtns button:hover{border-color:var(--blue);color:var(--blue);background:#f5f9ff}
+.qbox{display:flex;align-items:center;gap:6px;flex:none}
+.qbox input{width:158px;padding:5px 9px;font-size:12.5px}
+.qbox button{padding:5px 11px;font-size:12.5px}
+.chk{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);
+  cursor:pointer;user-select:none;margin-left:4px;white-space:nowrap}
+.chk input{width:13px;height:13px;margin:0;padding:0;cursor:pointer}
+.kbd{display:inline-block;background:var(--panel2);border:1px solid var(--line);
+  border-radius:4px;padding:1px 6px;font-size:11px;font-family:Consolas,monospace;
+  color:var(--dim);margin-left:5px}
+.legend{display:flex;gap:16px;font-size:11.5px;color:var(--dim);margin-bottom:10px;flex:none;
+  flex-wrap:wrap}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px}
+/* 放大预览 · 左右翻页箭头（2026-10-16 加：点击切换同户照片） */
+.lbnav{position:absolute;top:50%;transform:translateY(-50%);width:56px;height:104px;
+  display:flex;align-items:center;justify-content:center;color:#fff;
+  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.22);
+  border-radius:12px;cursor:pointer;user-select:none;transition:.15s;padding:0}
+.lbnav:hover{background:rgba(255,255,255,.26)}
+.lbnav:active{transform:translateY(-50%) scale(.94)}
+.lbnav.prev{left:26px}
+.lbnav.next{right:26px}
+.lbnav:disabled{opacity:.22;cursor:default}
+.lbnav:disabled:hover{background:rgba(255,255,255,.10)}
+.lbcount{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);
+  color:#fff;font-size:13px;letter-spacing:1px;font-family:Consolas,monospace;
+  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.22);
+  border-radius:999px;padding:5px 18px;white-space:nowrap}
+/* 公司分组筛选条（2026-10-16 加：已完成/未完的公司的复核队列分开） */
+.cotabs{display:flex;gap:8px;align-items:center;padding:8px 24px;background:var(--panel2);
+  border-bottom:1px solid var(--line);flex:none;overflow-x:auto}
+.cotab{display:inline-flex;align-items:center;gap:7px;padding:6px 14px;border:1px solid var(--line);
+  border-radius:999px;background:#fff;font-size:12.5px;cursor:pointer;white-space:nowrap;
+  font-family:inherit;color:var(--dim);transition:.12s}
+.cotab:hover{border-color:var(--blue)}
+.cotab.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+.cotab .n{font-family:Consolas,monospace;font-size:11.5px;padding:0 7px;border-radius:999px;
+  background:var(--panel2);color:var(--dim)}
+.cotab.on .n{background:rgba(255,255,255,.22);color:#fff}
+.cotab .n.done{background:#e8f5e9;color:#2e7d32}
+.cotab.on .n.done{background:rgba(255,255,255,.22);color:#fff}
+.cotab .dotd{color:#2e7d32;font-weight:700}
+.cotab.on .dotd{color:#fff}
+.cotip{font-size:11.5px;color:var(--dim);margin-left:8px;white-space:nowrap}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">⚡ 安检照片<em>AI质检</em></div>
+  <nav>
+    <a href="/">总览</a>
+    <a href="/live">实时看板</a>
+    <a href="/review" class="on">人工复核</a>
+    <a href="/report">月度报告</a>
+    <a href="/settings">设置</a>
+  </nav>
+  <div class="sp"></div>
+  <span class="hint" id="cntTxt">—</span>
+</header>
+
+<div class="vtop">
+  <h1>人工复核</h1>
+  <div class="prog">
+    <div style="font-size:12.5px;color:var(--dim)" id="progTxt">—</div>
+    <div class="bar2"><i id="bar" style="width:0%"></i></div>
+  </div>
+  <div class="qbox">
+    <input id="qbox" placeholder="输入客户编号跳转" onkeydown="if(event.key==='Enter')jumpCust()">
+    <button onclick="jumpCust()" title="查找">查找</button>
+  </div>
+  <div style="font-size:12px;color:var(--dim);text-align:right;line-height:1.7">
+    <div><b style="color:var(--green)">→</b> 没问题直接过　
+         <b style="color:var(--red)">Enter</b> 存意见并跳下一户</div>
+    <div><b style="color:var(--dim)">← / →</b> 翻看其他户　
+         <b style="color:var(--dim)">点照片</b> 放大后 ← → 翻张</div>
+  </div>
+</div>
+
+<div class="cotabs" id="coTabs"></div>
+
+<div class="main">
+  <div class="lbox">
+    <div class="lhead">
+      <div>
+        <div class="cnum" id="sCust">—</div>
+        <div class="cname" id="sName"></div>
+        <div class="cmeta" id="sInsp"></div>
+      </div>
+      <div class="lmeta" id="sMeta"></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--red)"></i>红框 = 系统判定为问题</span>
+      <span><i style="background:#f0d999"></i>黄框 = 提示</span>
+      <span><i style="background:var(--line)"></i>白框 = 该户其它照片</span>
+    </div>
+    <div class="photos" id="pgrid"></div>
+  </div>
+
+  <div class="side">
+    <section class="sbox issuecard">
+      <div class="hd"><h3>系统判定的问题</h3><span class="n" id="issN">0</span></div>
+      <div class="bd"><div class="ilist" id="ilist"></div></div>
+    </section>
+
+    <section class="sbox formcard">
+      <div class="hd">
+        <h3>人工复核</h3>
+        <label class="chk" title="勾上后队列只显示还没复核的户"><input type="checkbox" id="onlyP" checked onchange="toggleOnly()">只看未复核</label>
+        <span class="hbtns">
+          <button id="undoBtn" onclick="undoReview()" title="撤销本户复核" style="display:none">↺</button>
+          <button onclick="go(cur-1)" title="上一户（←）">‹</button>
+          <button onclick="go(cur+1)" title="下一户（→）">›</button>
+        </span>
+      </div>
+      <div class="vdrow">
+        <button class="vd fp" onclick="save('false_positive')" title="误判 · 快捷键 1">
+          <i>1</i><b>误判</b><span>从报表剔除</span>
+        </button>
+        <button class="vd wa" onclick="save('warning')" title="一般提示 · 快捷键 ↑ 或 2">
+          <i>2</i><b>一般提示</b><span>保留·降级</span>
+        </button>
+        <button class="vd cr" onclick="save('critical')" title="严重提示 · 快捷键 ↓ 或 3">
+          <i>3</i><b>严重提示</b><span>保留·升级</span>
+        </button>
+      </div>
+      <div class="fbody">
+        <textarea id="note" placeholder="复核意见（自动识别 + 勾选 + 手写会自动用分号合并）"></textarea>
+        <div class="autoline" id="quick"></div>
+        <div class="tagsec">
+          <div class="tglabel">现场问题 <em>可多选</em></div>
+          <div class="tags" id="tags"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="lb" id="lb" onclick="this.classList.remove('on')">
+  <button class="lbnav prev" id="lbPrev" type="button" title="上一张（←）"
+    onclick="event.stopPropagation();lbGo(-1)">
+    <svg viewBox="0 0 24 24" width="34" height="34"><path d="M15 4 L7 12 L15 20"
+      fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <img id="lbImg" alt="">
+  <button class="lbnav next" id="lbNext" type="button" title="下一张（→）"
+    onclick="event.stopPropagation();lbGo(1)">
+    <svg viewBox="0 0 24 24" width="34" height="34"><path d="M9 4 L17 12 L9 20"
+      fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <div class="lbcount" id="lbCnt"></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let rows=[], cur=0, doneMap={}, lbIdx=-1;
+
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// 比较用规范化：去所有空白、全角标点归一 → 兼容「照片拍摄不清晰 ！…」这类旧文案
+const norm=s=>String(s||'').replace(/\s+/g,'').replace(/[！]/g,'!').replace(/[。．]/g,'.')
+  .replace(/[，、]/g,',').replace(/[；;]/g,'');
+// 把明细里的「335.5 小时 / 14 天」这类关键量值挑出来加重
+const hiNum=s=>s.replace(/(\d+(?:\.\d+)?\s*(?:小时|天|分钟))/g,'<em>$1</em>');
+
+const isImg={items0:'隐患前',items1:'安检单拍照',items2:'表具照片',items3:'报警器',
+  items4:'自闭阀',items5:'安检圆贴',items6:'灶具全景',items7:'熄火保护针',
+  items8:'热水器',items9:'灶下检漏',items10:'厨房全景',overall_path:'总体安检'};
+
+/* 现场问题（用户 2026-10-19 指定顺序与文案，不可改） */
+const TAGS=['立管锈蚀！','未拍到燃气表!','未拍到燃气灶!','未拍到热水器!',
+            '没有壁挂炉!','照片拍摄不清晰!请以后认真拍照!',
+            '使用上月照片!请认真查证是否本月已经抄表!',
+            '照片与本户不符，请严肃核实!!',
+            '请着重确认，是否该安检员已入户检查！',
+            '需要相关人员现场复核！'];
+/* 默认项：系统自动识别出来的，灰色不可点，仅展示（用户「都要保留」） */
+const QUICK=['请相关人员复查','拍照时间与上传时间有间隔'];
+
+// 按问题类型自动填「系统自动识别」那一段（用户 2026-10-15 定，2026-10-19 文案更新）
+//   时间类：8小时~20天 →「拍照时间与上传时间有间隔」
+//           >20天     →「使用上月照片!请认真查证是否本月已经抄表!」
+//   模糊/无法辨认 →「照片拍摄不清晰!请以后认真拍照!」
+const T_CLARITY=TAGS[5], T_PREV=TAGS[6], T_MISMATCH=TAGS[7];
+function autoNote(r){
+  const iss=r.issues||[];
+  const ks=iss.map(i=>i.kind||'');
+  const days=[];
+  ks.forEach(k=>{
+    if(/水印日期与工单不符|照片时间早于安检工单时间|同一户照片拍摄时间不一致/.test(k)){
+      const d=((iss.find(i=>i.kind===k)||{}).detail)||'';
+      let m=d.match(/([\d.]+)\s*天\s*([\d.]+)?\s*小时?/);
+      if(m){ days.push(parseFloat(m[1])+(m[2]?parseFloat(m[2])/24:0)); return; }
+      m=d.match(/([\d.]+)\s*(?:个)?\s*小时/);
+      if(m){ days.push(parseFloat(m[1])/24); return; }
+      m=d.match(/([\d.]+)\s*(?:分钟|分)/);
+      if(m){ days.push(parseFloat(m[1])/1440); }
+    }
+  });
+  if(days.length){
+    return Math.max(...days)>20? T_PREV : QUICK[1];
+  }
+  if(ks.some(k=>/无法辨认|模糊|不清晰/.test(k))) return T_CLARITY;
+  return QUICK[0];
+}
+
+// 「自动识别段」容器：每户只显示本户实际命中/默认的那一条（灰色不可点）
+function renderAutoBox(){
+  const a=($('note').dataset.auto||'').trim();
+  $('quick').innerHTML = '<span class="albl">自动识别</span><span class="atext'+(a?'':' none')+'">'
+    + (a ? esc(a) : '本户无自动识别项') + '</span>';
+}
+
+/* ---- 复核意见三段结构（2026-10-19 用户定）----
+   ① auto   系统自动识别（按问题类型算出，灰色不可点，但必须保留）
+   ② picked 现场问题多选（用户点选，蓝色）
+   ③ manual 用户手写补充
+   合并顺序：auto → picked → manual，用分号分隔 */
+let picked=new Set(), manual='';
+const NOTE_SEP='；';
+
+$('tags').innerHTML=TAGS.map(t=>`<span class="tg" data-t="${t}">${t}</span>`).join('');
+/* 勾选/取消：直接改文本框——文本框就是最终备注，避免任何二次拼接出错 */
+document.querySelectorAll('#tags .tg').forEach(el=>{
+  el.onclick=()=>{
+    const t=el.dataset.t, ta=$('note');
+    let segs=ta.value.split(/[；;]/).map(x=>x.trim()).filter(Boolean);
+    if(picked.has(t)){
+      picked.delete(t); el.classList.remove('on');
+      segs=segs.filter(x=>norm(x)!==norm(t));
+    }else{
+      picked.add(t); el.classList.add('on');
+      if(!segs.some(x=>norm(x)===norm(t))) segs.push(t);
+    }
+    ta.value=segs.join(NOTE_SEP);
+    renderAutoBox();
+  };
+});
+
+/* 文本框内容即最终备注：自动识别段在首次进入时写入，之后由用户点击/手打维护 */
+function renderNoteInto(){ renderAutoBox(); }
+
+/* 纯函数：算出"人工真写"的那部分（不改 picked，不触发重绘） */
+function manualOf(raw, auto){
+  const a=(auto||'').trim();
+  const out=[];
+  String(raw||'').split(/[；;]/).map(x=>x.trim()).filter(Boolean).forEach(seg=>{
+    const ns=norm(seg);
+    if(a && ns===norm(a)) return;
+    if(TAGS.some(t=>norm(t)===ns)) return;
+    out.push(seg);
+  });
+  return out.join(NOTE_SEP);
+}
+/* 翻户时反向拆解：把已保存备注拆回 auto / picked / manual */
+function splitNote(raw, autoText){
+  picked=new Set();
+  const a=(autoText||'').trim();
+  const segs=String(raw||'').split(/[；;]/).map(x=>x.trim()).filter(Boolean);
+  const out=[];
+  segs.forEach(seg=>{
+    const ns=norm(seg);
+    if(a && ns===norm(a)) return;                 // 自动识别段：单独存在 dataset.auto，这里丢弃
+    const hit=TAGS.find(t=>norm(t)===ns);          // 现场问题标签 → 回填选中态
+    if(hit){ picked.add(hit); return; }
+    out.push(seg);                                 // 其余算手写
+  });
+  document.querySelectorAll('#tags .tg')
+    .forEach(el=>el.classList.toggle('on',picked.has(el.dataset.t)));
+  return {manual:out.join(NOTE_SEP), auto:a};
+}
+
+// 公司分组（2026-10-16）：各公司独立队列，已完成复核的公司排在右侧
+let coGroups=[], curCo=(new URLSearchParams(location.search).get('company')||'').toUpperCase();
+
+async function loadGroups(){
+  const s = await (await fetch('/api/queue?summary=1')).json();
+  coGroups = s.groups||[];
+  // 未完成的在前（待复核多的优先），已完成的排后
+  coGroups.sort((a,b)=>((b.pending>0)-(a.pending>0)) || (b.pending-a.pending)
+                       || a.code.localeCompare(b.code));
+  if(!curCo || !coGroups.some(g=>g.code===curCo)){
+    curCo = (coGroups.find(g=>g.pending>0)||coGroups[0]||{}).code || '';
+  }
+  renderTabs();
+  if(curCo) await loadQueue(); else render();
+}
+
+function coName(code){ const g=coGroups.find(x=>x.code===code); return g?g.name:(code||''); }
+
+function renderTabs(){
+  const unfinished = coGroups.filter(g=>g.pending>0).length;
+  $('coTabs').innerHTML = coGroups.map(g=>`
+    <button class="cotab ${g.code===curCo?'on':''}" onclick="switchCo('${g.code}')"
+      title="${g.name}：问题户 ${g.total}，已复核 ${g.done}">
+      ${g.name}
+      ${g.pending>0
+        ? `<span class="n">待复核 ${g.pending}</span>`
+        : `<span class="n done"><span class="dotd">✓</span> 已完成</span>`}
+    </button>`).join('')
+    + (unfinished>1?`<span class="cotip">按公司分队列，已完成的排在右侧（切换公司即换队列）</span>`:'')
+    + (unfinished===0&&coGroups.length?`<span class="cotip"><span class="dotd">✓</span> 所有公司复核均已完成</span>`:'');
+}
+
+async function switchCo(code){
+  if(code===curCo) return;
+  curCo=code; renderTabs();
+  await loadQueue();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+async function loadQueue(){
+  const po=($('onlyP')&&$('onlyP').checked)?'1':'0';
+  const d=await (await fetch('/api/queue?company='+encodeURIComponent(curCo)
+    +'&pending_only='+po)).json();
+  rows=d.rows||[];
+  const dn=await (await fetch('/api/reviews')).json();
+  doneMap={}; (dn.rows||[]).forEach(r=>doneMap[r.record_id]=r);
+  $('cntTxt').textContent=`${coName(curCo)}：待复核 ${d.pending||0} 户 · 已复核 ${d.done||0} 户`;
+  cur=rows.findIndex(r=>!doneMap[r.record_id]);
+  if(cur<0) cur=0;
+  render();
+}
+
+async function load(){ await loadGroups(); }
+
+async function toggleOnly(){ await loadQueue(); }
+
+function jumpCust(){
+  const k=($('qbox').value||'').trim();
+  if(!k) return;
+  const i=rows.findIndex(r=>String(r.cust_no||'').includes(k));
+  if(i<0){
+    $('cntTxt').textContent=($('onlyP')&&$('onlyP').checked)
+      ? `未找到 ${k}（已复核的户需先取消「只看未复核」）`
+      : `未找到 ${k}`;
+    return;
+  }
+  go(i);
+  $('cntTxt').textContent=`已跳到 ${rows[i].cust_no}（第 ${i+1} / ${rows.length} 户）`;
+}
+
+async function undoReview(){
+  const r=rows[cur]; if(!r) return;
+  if(!confirm('撤销本户复核？\n撤销后该户回到待复核，系统判定原样生效。')) return;
+  const res=await fetch('/api/review/undo',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({record_id:r.record_id,reviewer:'管理员'})});
+  const j=await res.json();
+  if(j.error){ alert(j.error); return; }
+  delete doneMap[r.record_id];
+  if(j.warn) alert(j.warn);
+  render();
+}
+
+function render(){
+  if(!rows.length){
+    $('sCust').textContent='—';
+    $('sName').textContent=(curCo?coName(curCo):'')+'：本月无待复核问题户';
+    $('sInsp').textContent=''; $('sMeta').innerHTML='';
+    $('ilist').innerHTML=''; $('issN').textContent='—'; $('pgrid').innerHTML='';
+    $('note').value=''; $('progTxt').textContent='该公司队列为空';
+    $('bar').style.width='100%';
+    return;
+  }
+  cur=Math.max(0,Math.min(cur,rows.length-1));
+  const r=rows[cur];
+  const doneN=rows.filter(x=>doneMap[x.record_id]).length;
+  $('progTxt').textContent=`${coName(curCo)} 第 ${cur+1} / ${rows.length} 户 · 已复核 ${doneN} / ${rows.length}`;
+  $('bar').style.width=(doneN*100/rows.length)+'%';
+  $('sCust').textContent=r.cust_no;
+  $('sName').textContent=(r.cust_name||'')+(doneMap[r.record_id]?' ✓已复核':'');  $('sInsp').textContent=`安检员：${r.inspector||'—'}　安检时间：${r.check_time||'—'}`;
+  $('sMeta').innerHTML=`
+    <div>公司：<b>${r.company_name||''}</b>　月份：<b>${r.month||''}</b></div>
+    <div>登记表号：<b class="mono">${r.meter_no||'—'}</b>　${r.meter_type||''}</div>
+    <div>照片 <b>${(r.photos||[]).length}</b> 张　问题 <b>${(r.issues||[]).length}</b> 项</div>
+    <div style="color:var(--dim)">${r.address||''}</div>`;
+
+  // 队列里带 eff_severity（人工定档后的档位）；展示与红框一律用它
+  const iss=(r.issues||[]).map(x=>({...x, severity:x.eff_severity||x.severity}));
+  $('issN').textContent = iss.length ? iss.length+' 项' : '无';
+  $('ilist').innerHTML = iss.length ? iss.map(i=>{
+    const where = i.name||isImg[i.items_code]||i.items_code||'';
+    return `<div class="iitem ${i.severity||'info'}">
+      <div class="ih"><b>${esc(i.kind||'')}</b>${where?`<span class="where">${esc(where)}</span>`:''}</div>
+      ${i.detail?`<div class="idt">${hiNum(esc(i.detail))}</div>`:''}
+    </div>`;
+  }).join('') : '<div class="empty" style="padding:16px 2px;font-size:12px">本户无系统判定问题</div>';
+
+  const bad={}; iss.forEach(i=>{ if(i.items_code) bad[i.items_code]=i; });
+  $('pgrid').innerHTML=(r.photos||[]).map((p,i)=>{
+    const iss=bad[p.items_code];
+    const cls=iss?(iss.severity==='critical'?'bad':(iss.severity==='warning'?'warn':'')):'';
+    const flag=iss?`<div class="flag">${iss.kind}</div>`:'';
+    return `<figure class="${cls}" data-i="${i}"><img src="/${p.path}" loading="lazy">`
+      +`${flag}<figcaption>${p.name||isImg[p.items_code]||p.items_code}</figcaption></figure>`;
+  }).join('');
+  $('pgrid').querySelectorAll('figure').forEach(f=>{
+    const i=parseInt(f.dataset.i,10);
+    f.onclick=()=>lbOpen(i);
+  });
+
+  const rv=doneMap[r.record_id];
+  const VL={false_positive:'误判',warning:'一般提示',critical:'严重提示'};
+  const ta=$('note');
+  const an=autoNote(r);
+  // 2026-10-19：autoNote 现在返回「系统自动识别」那一段，
+  //   它始终保留（灰色标签展示），用户勾选与手写在其后追加。
+  ta.dataset.auto = an||'';
+  // 已保存过：原文照搬回填（同时还原勾选态）；未复核过：以自动识别段起头
+  if(rv&&rv.note){
+    splitNote(rv.note, an);
+    ta.value=rv.note;
+  }else{
+    splitNote('', an);
+    ta.value=an||'';
+  }
+  renderAutoBox();
+  // 已复核的户才显示「撤销」
+  const ub=$('undoBtn');
+  if(ub) ub.style.display = rv ? 'inline-flex' : 'none';
+  // 高亮已勾选的档位
+  document.querySelectorAll('.vd').forEach(b=>b.classList.remove('on'));
+  if(rv&&VL[rv.verdict]){
+    const map={false_positive:'fp',warning:'wa',critical:'cr'};
+    const el=document.querySelector('.vd.'+map[rv.verdict]);
+    if(el) el.classList.add('on');
+  }
+}
+
+// 放大预览：点开照片 + 左右箭头翻张（2026-10-16 加）
+function lbOpen(i){
+  const ps=(rows[cur]||{}).photos||[];
+  if(!ps[i]) return;
+  lbIdx=i;
+  $('lbImg').src='/'+ps[i].path;
+  lbUpd();
+  $('lb').classList.add('on');
+}
+function lbUpd(){
+  const ps=(rows[cur]||{}).photos||[];
+  if(!ps[lbIdx]) return;
+  $('lbCnt').textContent=`${lbIdx+1} / ${ps.length}　${ps[lbIdx].name||isImg[ps[lbIdx].items_code]||ps[lbIdx].items_code||''}`;
+  $('lbPrev').disabled=lbIdx<=0;
+  $('lbNext').disabled=lbIdx>=ps.length-1;
+}
+function lbGo(d){
+  const ps=(rows[cur]||{}).photos||[];
+  const n=lbIdx+d;
+  if(n<0||n>=ps.length) return;
+  lbIdx=n;
+  $('lbImg').src='/'+ps[n].path;
+  lbUpd();
+}
+
+function go(n){
+  if(!rows.length) return;
+  $('lb').classList.remove('on'); lbIdx=-1;
+  cur=Math.max(0,Math.min(n,rows.length-1));
+  render();
+}
+
+async function save(v){
+  const r=rows[cur]; if(!r) return;
+  // 文本框内容即最终备注（自动识别 + 勾选 + 手写，分号分隔）
+  const ta=$('note');
+  const note=ta.value.trim();
+  const nauto=(ta.dataset.auto||'').trim();
+  // 人工真写的那部分：剔除自动识别段与已勾选标签后剩下的
+  const nmanual=manualOf(note, nauto);
+  await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({record_id:r.record_id,verdict:v,note:note,
+      note_auto:nauto,note_manual:nmanual,reviewer:'管理员'})});
+  const wasNew = !doneMap[r.record_id];
+  doneMap[r.record_id]={verdict:v,note:note,tags:[...picked]};
+  if(wasNew){
+    const g=coGroups.find(x=>x.code===curCo);
+    if(g){ g.done++; g.pending=Math.max(0,g.pending-1); }
+  }
+  let n=cur+1;
+  while(n<rows.length && doneMap[rows[n].record_id]) n++;
+  if(n>=rows.length){
+    n=rows.findIndex(x=>!doneMap[x.record_id]);
+    if(n<0){
+      // 本公司队列做完 → 自动切到下一个还有待复核的公司（不堆在一起）
+      const prevCo=curCo;
+      renderTabs();
+      const next=coGroups.find(g=>g.pending>0 && g.code!==prevCo);
+      if(next){
+        curCo=next.code; renderTabs(); await loadQueue();
+        $('cntTxt').textContent=`✓ ${coName(prevCo)} 复核已完成，已切到 ${next.name}（待复核 ${next.pending} 户）`;
+      }else{
+        render();
+        $('progTxt').textContent=`✓ ${coName(prevCo)} 复核完毕`;
+        $('bar').style.width='100%';
+        $('cntTxt').textContent='✓ 所有公司复核均已完成';
+      }
+      return;
+    }
+  }
+  cur=n; render();
+}
+
+// 键盘映射（用户 2026-10-15 定）：
+//   ↑ 上 = 一般提示   ↓ 下 = 严重提示
+//   ← 左 = 上一户     → 右 = 下一户
+// 放大预览打开时（2026-10-16）：← → 改为翻照片，Esc 关闭，其余键不响应
+document.addEventListener('keydown',e=>{
+  const ta=document.activeElement;
+  const typing=ta&&(ta.tagName==='TEXTAREA'||ta.tagName==='INPUT');
+  if(typing) return;
+  if($('lb').classList.contains('on')){
+    switch(e.key){
+      case 'ArrowLeft':  e.preventDefault(); lbGo(-1); return;
+      case 'ArrowRight': e.preventDefault(); lbGo(1);  return;
+      case 'Escape':     $('lb').classList.remove('on'); return;
+    }
+    return;
+  }
+  switch(e.key){
+    case 'ArrowUp':   e.preventDefault(); save('warning');return;
+    case 'ArrowDown': e.preventDefault(); save('critical');return;
+    case 'ArrowLeft': e.preventDefault(); go(cur-1); return;
+    case 'ArrowRight':e.preventDefault(); go(cur+1); return;
+    case '1': e.preventDefault(); save('false_positive'); return;
+    case '2': e.preventDefault(); save('warning'); return;
+    case '3': e.preventDefault(); save('critical'); return;
+    case 'Enter': e.preventDefault(); save('warning'); return;
+    case 'Escape': $('lb').classList.remove('on');
+  }
+});
+
+load();
+</script>
+</body>
+</html>

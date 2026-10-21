@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>设置 · 安检抽查系统</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">⚡ 安检照片<em>AI质检</em></div>
+  <nav>
+    <a href="/">运行</a>
+    <a href="/live">实时看板</a>
+    <a href="/report">月度报告</a>
+    <a href="/review">人工复核</a>
+    <a href="/settings" class="on">设置</a>
+  </nav>
+  <div class="sp"></div>
+</header>
+
+<div class="wrap">
+<h1>设置</h1>
+<div class="sub">模型可随时切换，检测口径不变。改完点保存，下次运行生效。</div>
+
+<div class="card">
+  <h2 style="margin-top:0">模型来源</h2>
+  <div class="row c4">
+    <div><label>来源类型</label>
+      <select id="model_source">
+        <option value="deepseek">DeepSeek 官方</option>
+        <option value="openai_compat">自定义 API / 中转（OpenAI 兼容）</option>
+        <option value="workbuddy">WorkBuddy 云服务（需 applicationId）</option>
+      </select></div>
+    <div><label>模型 ID</label><input id="model_id" placeholder="如 deepseek-flash / glm-4.6v-flash"></div>
+    <div><label>API 地址</label><input id="api_base" placeholder="https://api.deepseek.com"></div>
+    <div><label>API Key</label><input id="api_key" type="password" placeholder="sk-..."></div>
+  </div>
+  <div class="row c3" style="margin-top:14px">
+    <div><label>思考模式（DeepSeek 专用）</label>
+      <select id="thinking">
+        <option value="disabled">关闭（省 token，推荐）</option>
+        <option value="enabled">开启（输出 token 翻数倍）</option>
+      </select></div>
+    <div><label>applicationId（仅 WorkBuddy 云服务）</label><input id="application_id" placeholder="wbapp_..."></div>
+    <div style="display:flex;align-items:flex-end">
+      <button class="btn" id="btnSelf">测试模型视觉能力</button>
+    </div>
+  </div>
+  <div id="selfMsg" style="margin-top:12px"></div>
+
+  <h2>快速预设</h2>
+  <div class="hint" style="margin-bottom:10px">点一下填入常用配置</div>
+  <div id="presets" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">运行参数</h2>
+  <div class="row c4">
+    <div><label>抽样比例（每人入户数）</label>
+      <select id="sample_ratio">
+        <option value="0.1">10%（默认）</option><option value="0.2">20%</option>
+        <option value="0.5">50%</option><option value="1">100% 全量</option>
+      </select></div>
+    <div><label>每人最少抽查户数</label><input id="min_per_inspector" type="number" min="1" value="1"></div>
+    <div><label>并发数</label><input id="workers" type="number" min="1" max="8" value="3"></div>
+    <div><label>失败重试次数</label><input id="max_attempts" type="number" min="1" max="10" value="6"></div>
+  </div>
+  <div class="row c3" style="margin-top:14px">
+    <div><label>费用上限（元，0=不限）</label><input id="cost_limit" type="number" min="0" step="0.01" value="0"></div>
+    <div><label>待删除照片保留天数</label><input id="pending_keep_days" type="number" min="1" value="30"></div>
+    <div><label>重复判定阈值（相似度）</label><input id="similarity_threshold" type="number" min="0.5" max="0.99" step="0.01" value="0.70"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">系统状态</h2>
+  <div id="stats" class="hint">读取中…</div>
+  <div style="margin-top:14px;display:flex;gap:10px">
+    <button class="btn pri" id="btnSave">保存设置</button>
+    <button class="btn" id="btnReload">重新读取</button>
+  </div>
+  <div id="saveMsg" style="margin-top:10px"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">安全提醒</h2>
+  <div class="hint" style="line-height:2">
+    · API Key 只存在本机 <code>ai/config.json</code>，不写入代码、不进报告<br>
+    · 若 Key 曾在对话中明文出现，建议去对应平台轮换<br>
+    · 照片全部存放在本机 <code>ai/photos/</code> 与 <code>ai/pending_delete/</code>，不上传任何第三方（除你配置的模型 API 外）
+  </div>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const FIELDS=['model_source','model_id','api_base','api_key','thinking','application_id',
+  'sample_ratio','min_per_inspector','workers','max_attempts','cost_limit','pending_keep_days','similarity_threshold'];
+
+const PRESETS=[
+  {label:'DeepSeek deepseek-flash',v:{model_source:'deepseek',model_id:'deepseek-flash',api_base:'https://api.deepseek.com',thinking:'disabled'}},
+  {label:'智谱 GLM-4.6V-Flash（免费额度）',v:{model_source:'openai_compat',model_id:'glm-4.6v-flash',api_base:'https://open.bigmodel.cn/api/paas/v4',thinking:'disabled'}},
+  {label:'阿里 qwen3-vl-flash',v:{model_source:'openai_compat',model_id:'qwen3-vl-flash',api_base:'https://dashscope.aliyuncs.com/compatible-mode/v1',thinking:'disabled'}},
+  {label:'WorkBuddy Hy3',v:{model_source:'workbuddy',model_id:'hy3',api_base:'',thinking:'disabled'}},
+  {label:'自定义中转（空）',v:{model_source:'openai_compat',model_id:'',api_base:'',thinking:'disabled'}},
+];
+
+async function load(){
+  const c=await (await fetch('/api/config')).json();
+  FIELDS.forEach(f=>{ if(c[f]!==undefined && $(f)) $(f).value=c[f]; });
+  $('presets').innerHTML=PRESETS.map((p,i)=>`<button class="btn" data-i="${i}">${p.label}</button>`).join('');
+  $('presets').querySelectorAll('button').forEach(b=>{
+    b.onclick=()=>{ Object.entries(PRESETS[+b.dataset.i].v).forEach(([k,v])=>{ if($(k)) $(k).value=v; }); };
+  });
+  const s=await (await fetch('/api/stats')).json();
+  $('stats').innerHTML=`户数 <b>${s.records}</b> ｜ 已下载照片 <b>${s.photos}</b> ｜ 检查项完成 <b>${s.checks_done}</b>（待跑 ${s.checks_pending}）｜ 问题 <b>${s.issues}</b> ｜ 人工基准 <b>${s.truth}</b>`;
+}
+
+$('btnSave').onclick=async()=>{
+  const body={};
+  FIELDS.forEach(f=>{ const v=$(f).value; if(v!=='') body[f]=v; });
+  const r=await (await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  $('saveMsg').innerHTML=r.ok?'<span class="tag g">✓ 已保存，下次运行生效</span>':'<span class="tag r">保存失败</span>';
+  load();
+};
+$('btnReload').onclick=load;
+
+$('btnSelf').onclick=async()=>{
+  $('selfMsg').innerHTML='<span class="spin"></span> 正在测试…';
+  const body={};
+  FIELDS.slice(0,6).forEach(f=>{ const v=$(f).value; if(v!=='') body[f]=v; });
+  const r=await (await fetch('/api/selfcheck',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  $('selfMsg').innerHTML=r.ok
+    ?`<span class="tag g">✓ ${r.msg}</span> <span class="hint">模型返回：${(r.raw||'').slice(0,120)}</span>`
+    :`<span class="tag r">✗ ${r.msg}</span>`;
+};
+
+load();
+</script>
+</body>
+</html>

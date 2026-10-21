@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>安检抽查系统 · 总览</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">⚡ 安检照片<em>AI质检</em></div>
+  <nav>
+    <a href="/" class="on">总览</a>
+    <a href="/live">实时看板</a>
+    <a href="/review">人工复核</a>
+    <a href="/report">月度报告</a>
+    <a href="/settings">设置</a>
+  </nav>
+  <div class="sp"></div>
+  <span class="hint"><span class="dot" id="dot"></span><span id="phaseTxt">加载中</span></span>
+</header>
+
+<div class="wrap">
+  <h1>各分公司安检抽查总览</h1>
+  <p class="sub">点公司卡片进入该家的报告与问题明细 · 每次只跑一家 · 跑完可随时接着跑（断点续查）</p>
+
+  <div class="cards">
+    <div class="card"><div class="n" id="tRec">0</div><div class="l">累计抽查户数</div></div>
+    <div class="card"><div class="n" id="tOk">0</div><div class="l">合格户</div></div>
+    <div class="card"><div class="n" id="tCrit" style="color:var(--red)">0</div><div class="l">严重问题户</div></div>
+    <div class="card"><div class="n" id="tWarn" style="color:var(--yellow)">0</div><div class="l">仅提示户</div></div>
+    <div class="card"><div class="n" id="tRv">0</div><div class="l">待人工复核</div></div>
+    <div class="card"><div class="n" id="tPh">0</div><div class="l">待删除照片</div></div>
+  </div>
+
+  <h2>分公司状态<small id="monthTag" style="font-weight:400;color:var(--dim);font-size:13px;margin-left:10px"></small></h2>
+  <div class="cards" id="coGrid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))"></div>
+
+  <h2>断点续传<small style="font-weight:400;color:var(--dim);font-size:13px;margin-left:10px">每家公司独立记录进度，关掉浏览器也不丢</small></h2>
+  <div class="card" id="resumeBox"><div class="hint">读取中…</div></div>
+
+  <h2>快捷操作</h2>
+  <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <button class="pri" onclick="location.href='/live'">实时看板</button>
+    <button onclick="location.href='/review'">人工复核</button>
+    <button onclick="location.href='/report'">月度报告</button>
+    <button id="btnExp" onclick="exp6()">一键生成全部分公司报告</button>
+    <button onclick="location.href='/settings'">设置 / 运行参数</button>
+    <span id="expMsg" style="color:var(--dim);font-size:13px"></span>
+  </div>
+
+  <div class="hint-box" style="margin-top:18px">
+    <b>怎么开始检测？</b>直接在这里对我说「<b>启动安检抽查</b> + 表格路径」，
+    我会自动导入、抽样、下载照片、逐户读图判定、写入数据库，最后出报告。识别由我亲自读图完成，
+    不需要 API Key、不花钱、不会限流。全程可以盯着实时看板看进度。<br><br>
+    <b>断点续查：</b>每家公司独立记录进度。中途停下、关掉浏览器、甚至隔天再来，
+    说一句「继续」即可——只补没判完的户，已判过的不重复判、不重复烧钱。
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+
+async function load(){
+  let d;
+  try{ d=await (await fetch('/api/dashboard')).json(); }
+  catch(e){ $('phaseTxt').textContent='服务未启动'; return; }
+  render(d.companies);
+  const s=d.companies.reduce((a,c)=>({
+    rec:a.rec+c.done_records, ok:a.ok+c.ok_house,
+    crit:a.crit+c.crit_house, warn:a.warn+c.warn_house
+  }),{rec:0,ok:0,crit:0,warn:0});
+  $('tRec').textContent=s.rec; $('tOk').textContent=s.ok;
+  $('tCrit').textContent=s.crit; $('tWarn').textContent=s.warn;
+  try{
+    const rv=await (await fetch('/api/queue')).json();
+    $('tRv').textContent=rv.pending||0;
+    const pd=await (await fetch('/api/pending')).json();
+    $('tPh').textContent=pd.total_files||0;
+  }catch(e){}
+  const months=[...new Set(d.companies.map(c=>c.month).filter(Boolean))].sort();
+  $('monthTag').textContent=months.length?`最新月份 ${months[months.length-1]}`:'';
+  const doing=d.companies.find(c=>c.tagcls==='doing');
+  $('dot').className='dot'+(doing?' busy on':'');
+  $('phaseTxt').textContent=doing?`${doing.name} 进行中 ${doing.done_records}/${doing.total_records}`:'待机';
+}
+
+function render(list){
+  $('coGrid').innerHTML=list.map(c=>`
+    <a class="co" href="/report?company=${c.code}">
+      <div class="nm">${c.name}<span class="tag ${c.tagcls}">${c.tag}</span></div>
+      <div class="bar"><i style="width:${c.percent}%"></i></div>
+      <div class="nums">
+        <span>抽查 <b>${c.done_records}</b>/${c.total_records} 户</span>
+        <span class="c">严重 <b>${c.crit_house}</b></span>
+        <span class="w">提示 <b>${c.warn_house}</b></span>
+      </div>
+      <div class="nums" style="margin-top:5px;font-size:11.5px">
+        ${c.month?`月份 ${c.month}`:'<span>尚未导入数据</span>'}
+        ${c.last_time?` · 最近判定 ${String(c.last_time).slice(5,16)}`:''}
+      </div>
+    </a>`).join('');
+}
+
+async function exp6(){
+  const btn=$('btnExp'); btn.disabled=true; btn.textContent='生成中…';
+  $('expMsg').textContent='';
+  try{
+    const r=await (await fetch('/api/report/export6?embed=1')).json();
+    if(r.files && r.files.length){
+      $('expMsg').innerHTML='已生成 '+r.files.length+' 份（照片已内嵌，可直接转发）：'
+        +r.files.map(f=>`<br>· ${f.name}分公司（${f.rows}条问题 · 严重${f.critical}）`).join('')
+        +(r.skipped&&r.skipped.length?`<br><small>${r.skipped.join('；')}</small>`:'');
+    }else{
+      $('expMsg').textContent='没有可生成的数据（'+(r.skipped||[]).join('；')+'）';
+    }
+  }catch(e){ $('expMsg').textContent='失败：'+e; }
+  btn.disabled=false; btn.textContent='一键生成全部分公司报告';
+}
+
+async function loadResume(){
+  try{
+    const d=await (await fetch('/api/resume')).json();
+    $('resumeBox').innerHTML=`<table><thead><tr>
+      <th style="width:110px">分公司</th><th style="width:90px">状态</th>
+      <th style="width:170px">进度</th><th>续跑位置</th></tr></thead><tbody>`+
+      d.companies.map(c=>`<tr>
+        <td><b>${c.name}</b></td>
+        <td><span class="b ${c.state==='已完成'?'bg':(c.state==='进行中'?'bw':'bi')}">${c.state}</span></td>
+        <td>${c.total?`${c.done}/${c.total} 户（${c.percent}%）`:'—'}</td>
+        <td style="color:var(--dim)">${c.msg}</td></tr>`).join('')+
+      `</tbody></table>`;
+  }catch(e){ $('resumeBox').innerHTML='<div class="hint">读取失败</div>'; }
+}
+
+load(); loadResume(); setInterval(load,6000); setInterval(loadResume,15000);
+</script>
+</body>
+</html>

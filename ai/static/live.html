@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>实时看板 · 安检抽查系统</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.hero{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:22px 26px;margin-bottom:16px}
+.hero .lbl{font-size:12.5px;color:var(--dim);margin-bottom:6px}
+.hero .cust{font-size:44px;font-weight:700;color:var(--hi);font-family:Consolas,monospace;
+  letter-spacing:1px;line-height:1.15}
+.hero .who{font-size:19px;color:var(--blue);font-weight:600;margin-top:2px}
+.hero .meta{font-size:13px;color:var(--dim);margin-top:6px}
+.verdict{font-size:40px;font-weight:700;line-height:1.1;margin:10px 0 4px}
+.verdict.ok{color:var(--green)} .verdict.warning{color:var(--yellow)}
+.verdict.critical{color:var(--red)} .verdict.info{color:var(--dim)}
+.probs{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.probs span{background:var(--yellowbg);color:var(--yellow);border:1px solid #f0d999;
+  border-radius:12px;padding:3px 11px;font-size:12.5px}
+.probs span.critical{background:var(--redbg);color:var(--red);border-color:#ffccc7}
+.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:14px}
+.shots figure{margin:0;cursor:zoom-in}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+.kpi .l{font-size:12px;color:var(--dim)}
+.kpi .v{font-size:24px;font-weight:700;color:var(--hi);margin-top:2px}
+.cols{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+@media(max-width:1100px){.cols{grid-template-columns:1fr}}
+.fitem{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);font-size:12.5px}
+.fitem .c{font-family:Consolas,monospace;color:var(--hi);font-weight:600}
+.fitem .n{color:var(--dim)}
+.empty{border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">⚡ 安检照片<em>AI质检</em></div>
+  <nav>
+    <a href="/">总览</a>
+    <a href="/live" class="on">实时看板</a>
+    <a href="/review">人工复核</a>
+    <a href="/report">月度报告</a>
+    <a href="/settings">设置</a>
+  </nav>
+  <div class="sp"></div>
+  <span class="hint"><span class="dot" id="dot"></span><span id="phaseTxt">—</span></span>
+  <span class="hint" id="clock" style="margin-left:16px;font-family:Consolas,monospace"></span>
+</header>
+
+<div class="wrap">
+  <div class="kpis">
+    <div class="card kpi"><div class="l">进度</div><div class="v" id="kCnt">0 / 0</div></div>
+    <div class="card kpi"><div class="l">抽查户数</div><div class="v" id="kRec">0</div></div>
+    <div class="card kpi"><div class="l">已存照片</div><div class="v" id="kDl">0</div></div>
+    <div class="card kpi"><div class="l">问题合计</div><div class="v" id="kIss">0</div></div>
+    <div class="card kpi"><div class="l">严重</div><div class="v" id="kCrit" style="color:var(--red)">0</div></div>
+    <div class="card kpi"><div class="l">提示</div><div class="v" id="kWarn" style="color:var(--yellow)">0</div></div>
+  </div>
+
+  <div class="bar2"><i id="bar" style="width:0%"></i></div>
+
+  <div class="cols">
+    <div>
+      <div class="hero">
+        <div class="lbl" id="compTxt">当前判定户</div>
+        <div class="cust" id="sCust">—</div>
+        <div class="who" id="sName"></div>
+        <div class="meta" id="sInsp"></div>
+        <div class="verdict info" id="sVerdict">待机</div>
+        <div class="meta" id="sItems"></div>
+        <div class="probs" id="sProbs"></div>
+        <div class="shots" id="sPhotos"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:13px;color:var(--blue);margin:0 0 10px">实时问题流</h3>
+      <div class="feed" id="feed" style="max-height:560px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="lb" id="lb" onclick="this.classList.remove('on')"><img id="lbImg" alt=""></div>
+
+<script>
+const $=id=>document.getElementById(id);
+let lastCust='', seen=new Set();
+
+setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString('zh-CN',{hour12:false});},1000);
+
+async function tick(){
+  let s;
+  try{ s=await (await fetch('/api/state')).json(); }
+  catch(e){ $('phaseTxt').textContent='服务未启动'; $('dot').className='dot'; return; }
+  const st=s.state||{};
+  $('phaseTxt').textContent=({idle:'待机',import:'① 导入',sample:'② 抽样',
+    download:'③ 下载照片',check:'④ AI 识别',done:'✓ 完成',error:'✗ 出错'})[s.phase]||s.phase;
+  $('dot').className='dot'+(st.percent<100&&st.total_checks?' busy on':'');
+  $('compTxt').textContent=(st.company_name)?`${st.company_name} · ${st.month||''}`:'当前判定户';
+
+  const doneR=st.done_records||0, totalR=st.total_records||0;
+  const doneC=st.done_checks||0, totalC=st.total_checks||0;
+  $('kCnt').textContent=totalR?`${doneR}/${totalR} 户`:`${doneC}/${totalC}`;
+  const pct=totalR?doneR*100/totalR:(totalC?doneC*100/totalC:0);
+  $('bar').style.width=pct+'%';
+  $('kRec').textContent=totalR;
+  $('kDl').textContent=st.photos_ok!=null?st.photos_ok:(st.downloaded||0);
+  $('kIss').textContent=st.issues||0;
+  $('kCrit').textContent=st.critical||0;
+  $('kWarn').textContent=st.warning||0;
+
+  // 当前户大字
+  if(st.current_cust && st.current_cust!==lastCust){
+    lastCust=st.current_cust;
+    $('sCust').textContent=st.current_cust;
+    $('sName').textContent=st.current_name||'';
+    $('sInsp').textContent=`安检员：${st.current_inspector||'—'}`;
+    const li=st.last_issue||{};
+    const lv=li.severity||'ok';
+    $('sVerdict').textContent={critical:'✗ 存在问题',warning:'⚠ 提示',info:'· 仅记录',ok:'✓ 通过'}[lv]||'待机';
+    $('sVerdict').className='verdict '+lv;
+    $('sItems').textContent=li.kind||'';
+    $('sProbs').innerHTML=li.kind?`<span class="${lv}">${li.kind}</span>`:'';
+    loadPhotos(st.current_cust);
+  }
+
+  // 右侧问题流
+  (st.recent_issues||[]).forEach(r=>{
+    const k=r.cust_no+'|'+r.kind+'|'+(r.detail||'');
+    if(seen.has(k))return; seen.add(k);
+    const d=document.createElement('div');
+    d.className='fitem';
+    d.innerHTML=`<span class="dot2 ${r.severity}"></span>`
+      +`<span class="c">${r.cust_no||''}</span><span>${r.cust_name||''}</span>`
+      +`<span class="n">${r.inspector||''}</span>`
+      +`<span style="margin-left:auto;color:var(--dim)">${r.kind||''}</span>`;
+    $('feed').prepend(d);
+    while($('feed').children.length>60) $('feed').lastChild.remove();
+  });
+}
+tick(); setInterval(tick,2000);
+
+const isImg={items0:'隐患前',items1:'安检单拍照',items2:'表具照片',items3:'报警器',
+  items4:'自闭阀',items5:'安检圆贴',items6:'灶具全景',items7:'熄火保护针',
+  items8:'热水器',items9:'灶下检漏',items10:'厨房全景',overall_path:'总体安检'};
+
+async function loadPhotos(cust){
+  const wrap=$('sPhotos'); wrap.innerHTML='';
+  let mine=[];
+  try{
+    const q=await (await fetch('/api/queue?size=500')).json();
+    const hit=(q.rows||[]).find(x=>x.cust_no===cust);
+    if(hit){
+      const bad={}; (hit.issues||[]).forEach(i=>{ if(i.items_code) bad[i.items_code]=i; });
+      mine=(hit.photos||[]).slice(0,8).map(p=>({p:p,iss:bad[p.items_code]}));
+    }else{
+      // 正常户不在复核队列，直接查records 拿不到照片，跳过
+      mine=[];
+    }
+  }catch(e){}
+  if(!mine.length){ wrap.innerHTML='<div style="color:var(--dim);font-size:12.5px">该户照片未留存（正常户照片在待删除区）</div>'; return; }
+  mine.forEach(m=>{
+    const cls=m.iss?(m.iss.severity==='critical'?'bad':'warn'):'';
+    const f=document.createElement('figure');
+    f.className=cls;
+    f.innerHTML=`<img src="/${m.p.path}" loading="lazy">`
+      +(m.iss?`<div class="flag">${m.iss.kind}</div>`:'')
+      +`<figcaption>${isImg[m.p.items_code]||m.p.items_code}</figcaption>`;
+    f.onclick=()=>{ $('lbImg').src=f.querySelector('img').src; $('lb').classList.add('on'); };
+    wrap.appendChild(f);
+  });
+}
+</script>
+</body>
+</html>
