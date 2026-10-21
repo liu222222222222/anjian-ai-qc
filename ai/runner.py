@@ -244,22 +244,14 @@ class Job:
             n = max(minp, int(len(ids) * ratio + 0.5))
             n = min(n, len(ids))
             picked.extend(ids[:n])
-        # 打标记
+        # 打标记（sampled 列由 db.py 的 SCHEMA / _migrate 保证存在）
         con.execute("UPDATE records SET sampled=0 WHERE company=?", (self.company,))
         for i in range(0, len(picked), 500):
             con.executemany("UPDATE records SET sampled=1 WHERE id=?",
                             [(i,) for i in picked[i:i + 500]])
         con.commit()
-        # 若库里已有 sampled 列缺失则补
-        self._ensure_sampled(con)
         self.emit("sampled", total=len(picked), inspectors=len(by))
         return picked
-
-    def _ensure_sampled(self, con):
-        cols = [c[1] for c in con.execute("PRAGMA table_info(records)")]
-        if "sampled" not in cols:
-            con.execute("ALTER TABLE records ADD COLUMN sampled INTEGER DEFAULT 0")
-            con.commit()
 
     # ---------- checks ----------
     def build_checks(self, con, rec_ids):

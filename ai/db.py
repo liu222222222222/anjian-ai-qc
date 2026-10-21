@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS records (
     visit_fail INTEGER, check_time TEXT, inspector TEXT, plan_name TEXT,
     plan_type TEXT, meter_type TEXT, meter_brand TEXT, gas_nature TEXT,
     meter_no TEXT, hazard_raw TEXT, photo_count INTEGER,
+    sampled INTEGER DEFAULT 0,          -- 是否被本次抽样命中（报告口径按 sampled=1 过滤）
     src_file TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(company, cust_no, src_file)
 );
@@ -191,12 +192,17 @@ def _has_col(con, table, col):
 
 
 def _migrate(con):
-    """幂等迁移：给老库补字段（2026-10-19 数据链路改造）
-    issues.active  —— 0=历史版本（重判后留档），1=当前生效
-    issues.rev     —— 该户第几次判定
-    reviews.note_auto / note_manual —— 区分"系统自动识别"与"人工真写"
+    """幂等迁移：给老库补字段
+
+    records.sampled  —— 是否被抽样命中（报告/看板口径都按 sampled=1 过滤）
+    issues.active    —— 0=历史版本（重判后留档），1=当前生效
+    issues.rev       —— 该户第几次判定
+    reviews.note_auto / note_manual —— 区分「系统自动识别」与「人工真写」
     """
     changed = False
+    if not _has_col(con, "records", "sampled"):
+        con.execute("ALTER TABLE records ADD COLUMN sampled INTEGER DEFAULT 0")
+        changed = True
     if not _has_col(con, "issues", "active"):
         con.execute("ALTER TABLE issues ADD COLUMN active INTEGER DEFAULT 1")
         changed = True

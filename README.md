@@ -36,7 +36,11 @@
 ```bash
 python 3.9+            # 标准库即可跑服务；读图脚本需要下面这些
 pip install -r requirements.txt
+cp config.example.json ai/config.json   # 首次运行需要
 ```
+
+> 走「Agent 亲自读图」路线时**不需要 API Key**——识别由对话模型完成。
+> 只有想让程序自己调外部视觉 API 时才在设置页填 Key。
 
 ### 2. 接入你自己的公司
 
@@ -166,27 +170,33 @@ anjian-ai-qc/
 │   ├── server.py           HTTP 服务（Python 标准库，零依赖）+ SSE 实时推送
 │   ├── runner.py           编排：导入 → 抽样 → 下载 → 检测 → 分拣
 │   ├── engine.py           判定规则 + 提示词 + 照片分拣
-│   ├── db.py               SQLite（WAL）+ 口径常量 + 公司/items 映射
+│   ├── db.py               SQLite（WAL）+ 口径常量 + 公司/items 映射  ← 接自己的数据改这里
 │   ├── cli.py              Agent 通道命令行（prepare/next/submit/bulk/status/finish/report）
 │   ├── report_data.py      报告数据层（分公司汇总、复核裁决）
 │   ├── report_render.py    报告渲染（纯 SQL + 模板，零大模型调用）
+│   ├── _bulk_many.py       批量落库助手（一次进程连续 bulk，失败自动重试）
 │   ├── models/             模型适配层（OpenAI 兼容 / DeepSeek / 自定义中转）
 │   ├── static/             前端页面（原生 HTML/CSS/JS，无构建步骤）
 │   ├── scripts/
 │   │   ├── batch.py        批处理：pack / gap / zoom / precheck / postcheck
-│   │   ├── barcode*.py     条码解码交叉验证（pyzbar + zxing）
+│   │   ├── barcode*.py     条码解码交叉验证（pyzbar + zxingcpp）
 │   │   ├── ocr_meter.py    OCR 读表号（RapidOCR）
 │   │   ├── meter_band.py   自动定位表号带
+│   │   ├── packpool.py     按 rid 池切分打包，避免重复领同一批户
 │   │   └── acceptance.py   三轮验收（数据一致性 / 误判撤销 / 报告 / 接口健壮性）
-│   ├── photos/             有问题的照片（证据留存）
-│   ├── pending_delete/     无问题照片（30 天后清理）
-│   ├── false_positive/     人工复核判「误判」的照片（永久留档）
-│   └── reports/            批次材料与导出报告
+│   ├── photos/             有问题的照片（证据留存，运行时生成）
+│   ├── pending_delete/     无问题照片（30 天后清理，运行时生成）
+│   ├── false_positive/     人工复核判「误判」的照片（永久留档，运行时生成）
+│   └── reports/            批次材料与导出报告（运行时生成）
 ├── docs/
 │   ├── SKILL.md            Agent 工作流说明（喂给 Agent 用）
 │   └── 子代理并行读图.md    ≥300 户时的子代理并行方法论
+├── assets/architecture.svg 架构示意图
+├── config.example.json     配置模板（复制为 ai/config.json）
 ├── requirements.txt
-└── 启动质检系统.bat
+├── 启动质检系统.bat
+├── LICENSE
+└── .gitignore
 ```
 
 ---
