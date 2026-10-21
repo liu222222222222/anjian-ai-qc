@@ -7,6 +7,10 @@
 
 ![架构](assets/architecture.svg)
 
+> **接手部署的 Agent 请直接看 [`docs/部署交接.md`](docs/部署交接.md)** ——
+> 里面有必须向用户采集的参数清单（分公司、照片列名、抽样口径、判定阈值）、改哪个文件、
+> 以及真实数据跑通的验收标准。本文档是给人看的概览，那份是给 Agent 执行的 SOP。
+
 ---
 
 ## 它能查出什么
@@ -36,7 +40,8 @@
 ```bash
 python 3.9+            # 标准库即可跑服务；读图脚本需要下面这些
 pip install -r requirements.txt
-cp config.example.json ai/config.json   # 首次运行需要
+# config.json 可选：不存在时用内置默认值（抽样 10% / 阈值 168h / 端口 8790）
+cp config.example.json ai/config.json
 ```
 
 > 走「Agent 亲自读图」路线时**不需要 API Key**——识别由对话模型完成。
@@ -189,6 +194,7 @@ anjian-ai-qc/
 │   ├── false_positive/     人工复核判「误判」的照片（永久留档，运行时生成）
 │   └── reports/            批次材料与导出报告（运行时生成）
 ├── docs/
+│   ├── 部署交接.md           ★ 给接手 Agent 的部署 SOP（含参数采集清单）
 │   ├── SKILL.md            Agent 工作流说明（喂给 Agent 用）
 │   └── 子代理并行读图.md    ≥300 户时的子代理并行方法论
 ├── assets/architecture.svg 架构示意图
