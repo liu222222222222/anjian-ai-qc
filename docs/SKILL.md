@@ -17,7 +17,7 @@
 
 你是**燃气入户安检审核员**。照片由你亲自读图判定（你的视觉能力是这套流程的前提），程序端不另调图像识别服务。
 程序（`ai/cli.py` + `ai/scripts/batch.py`）只负责搬数据、下载、抽样、落库、报告；
-裁图放大**只用于疑难户复核**，绝不用来做主判定。
+裁图放大**一律不用**——包括疑难户复核，也是把原图再读一次。
 
 ---
 
@@ -28,7 +28,8 @@
 | 禁止 | 说明 |
 |---|---|
 | 任何「水印条带 / 表号联排 / 九宫格」裁切拼图 | **已作废的旧思路**，不要生成、也不要调用 |
-| `batch.py pack` 不带 `--no-sheets` | 默认会生成水印条带与表号联排图，必须显式加 `--no-sheets` |
+| `batch.py pack --sheets` | 现在默认**不生成**联排图；只有显式加 `--sheets` 才会出，出了也不要拿来判定 |
+| `batch.py zoom` | **2026-11-05 起作废**，跑起来只打印作废警告；读不清就再读一次原图，或直接记「无法辨认」 |
 | 反复放大 / 调参重裁 | 一眼扫描，能看到就差不多，不清楚就是不清楚；放大只是插值，不增信息 |
 
 **理由（实测）**：多家公司表具原图长边 100% ≤1568px，读图端零压缩，一图一户拿到的就是原分辨率。
@@ -130,8 +131,8 @@ $PY cli.py prepare --file "<用户给的 xlsx 路径>" --limit 0 --workers 6 --f
 ### 第 2 步：批处理循环（核心，32 户/批）
 
 ```bash
-# ① 领批（--no-sheets：不出切图，按 checklist 直读完整原图）
-$PY scripts/batch.py pack --n 32 --company C1 --month 2026-09 --no-sheets
+# ① 领批（默认不出任何切图，按 checklist 直读完整原图）
+$PY scripts/batch.py pack --n 32 --company C1 --month 2026-09
 #    → 按 reports/_packs/b<N>/checklist.md 里的路径【直读完整原图】：
 #      一张图看全 水印时间 + 表号 + 拍摄内容
 #    → 读完后直接写判定 JSON（含 watermark_time 与 meter_read），json 即读数落盘
@@ -140,12 +141,12 @@ $PY scripts/batch.py pack --n 32 --company C1 --month 2026-09 --no-sheets
 $PY scripts/batch.py gap --file reports/_batch<N>.json
 #    → 输出的每一行都会标：critical / 边界注意 / 不标记
 
-# ③ 强制复核规则命中的户，放大复核（复核才用 zoom 裁切）
-$PY scripts/batch.py zoom --rids 13311,13393 --zone wm
+# ③ 复核规则命中的户：把原图再读一次（不裁切、不放大）
+#    读第二遍仍读不出 → 记「表号无法辨认」，不猜
 
 # ④ 提交前预检
 $PY scripts/batch.py precheck --file reports/_batch<N>.json
-#    → ERR 必须修正；WARN（表号编辑距离/边界 gap）逐条 zoom 确认
+#    → ERR 必须修正；WARN（表号编辑距离/边界 gap）逐条回原图确认
 
 # ⑤ 提交 + 核对
 $PY cli.py bulk --file reports/_batch<N>.json > reports/_b<N>out.json
@@ -229,16 +230,16 @@ $PY cli.py report --month 2026-09 --company C4           # 外链版，几百KB�
 ## 强制复核规则
 
 曾出现**系统性水印读数错误**（部分 critical 户读数错，如把 08-13 读成 09-13）。
-根因：联排图上小字靠字形轮廓猜。以下规则**强制**：
+根因：在缩小过的联排图上靠字形轮廓猜。以下规则**强制**：
 
-1. **任何「跨月」读数**（水印月份 ≠ 工单月份）→ `zoom --zone wm` 复核
-2. **任何 gap ≥168h 的读数**（critical 候选）→ zoom 复核后再定稿
-3. **任何 gap 在 144–192h 边界带**的读数 → zoom 复核
+1. **任何「跨月」读数**（水印月份 ≠ 工单月份）→ 回原图再读一次确认
+2. **任何 gap ≥168h 的读数**（critical 候选）→ 再读一次原图后再定稿
+3. **任何 gap 在 144–192h 边界带**的读数 → 再读一次原图
 4. 每批提交**前**必跑 `precheck`；提交**后**必跑 `postcheck`
 5. 读水印时逐位读全（年月日时分秒），**不跳读、不凭印象**
 
-> 复核图读取技巧：`zoom` 输出图在对话里会自动缩到长边约 1568px，所以
-> **裁得越紧显示越大**。仍看不清可再收紧 `--x0/--x1/--top/--bot`。
+> 复核的唯一手段是**把原图再读一遍**（原分辨率、不裁切）。读不清就记「表号无法辨认」/ 只在 comment 里
+> 说明看不清时间，不要靠裁切拼图去凑一个数字——裁切会把结论带偏。
 
 ---
 
@@ -280,7 +281,7 @@ $PY cli.py report --month 2026-09 --company C4           # 外链版，几百KB�
 - 相似度签名用 **16×16 灰度**；阈值：同检查项连拍 ≥0.97 且**必须排除 overall_path**；
   items8 vs items1 ≥0.93
 - `records` 表**没有 month 列**，月份从 `check_time` 前 7 位派生（`R.month_of()`）
-- 任何裁切带 / 联排拼图**已作废**，只保留 `batch.py zoom` 供疑难复核
+- 任何裁切带 / 联排拼图**已作废**，`batch.py zoom` 也于 2026-11-05 作废（跑了只打印警告）
 - 水印/工单比对以 **DB 权威 check_time** 为准（引擎自动算），手写 comment 时不要自己心算
 - 提交后出现「非预期机械判定」时先查 DB 的 issues 明细（`batch.py postcheck`）
 - 报告照片路径 `../photos/...`（本地开）；外发必须 `--embed`

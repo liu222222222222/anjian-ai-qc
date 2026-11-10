@@ -17,12 +17,15 @@ flowchart TD
     D --> E[("SQLite 落库<br/>issues 明细 + 照片三联分拣")]
     E --> F["人工复核 /review<br/>误判置 active=0 留档，不删除"]
     E --> G["实时看板 /live<br/>SSE 推进度，给现场投影"]
+    E --> I["专项任务 /special<br/>名单全量复核 · 独立库 special.db"]
     F --> H["报告渲染 /report<br/>纯 SQL + 模板，零大模型调用"]
 
     classDef agent fill:#eef4ff,stroke:#1668dc,stroke-width:2px,color:#0e4fa8
     classDef store fill:#f6ffed,stroke:#52c41a,color:#237804
+    classDef extra fill:#fff7e6,stroke:#fa8c16,color:#ad4e00
     class D agent
     class E,G store
+    class I extra
 ```
 
 > 上图用 GitHub 原生 Mermaid 渲染，不依赖图床 —— 仓库内 `raw.githubusercontent.com`
@@ -98,24 +101,40 @@ cp config.example.json ai/config.json
 
 ### 2. 接入你自己的公司
 
-打开 `ai/db.py`，改两处：
+打开 `ai/db.py`，改三张表：
 
 ```python
-COMPANY_ORDER = [          # (公司代码, 显示名)
+COMPANY_ORDER = [          # ① (公司代码, 显示名)
     ("C1", "A 公司"),
     ("C2", "B 公司"),
 ]
+
+METER_ITEMS = {            # ② 该公司「表具照片」所在的 items_code
+    "C1": ("items4", "items17"),   # 一列就写字符串，两列写元组（前者优先）
+    "C3": ("items1",),
+}
+FORM_ITEMS = {"C1": "items0"}      # ③ 安检单照片所在项，默认 items1
+
+GAS_NATURE_WHITELIST = {   # ④ 「民用」在该公司系统里叫什么
+    "C1": ("民用", "乡镇民用"),
+    "C2": ("民用", "民用取暖", "煤改气"),
+}
 ```
 
-再按你实际 Excel 的列名，调整各公司「表具照片 / 安检单照片」所在的 `items_code`：
-
-```python
-METER_ITEMS = {"C1": "items4"}     # 该公司表具照片所在项，默认 items2
-FORM_ITEMS  = {"C1": "items0"}     # 该公司安检单照片所在项，默认 items1
-```
-
-> 为什么需要这张表：不同公司的安检系统给「同一业务含义」分配的 items 编号**不一样**，
+> 三张表都是**按公司配**，因为不同公司的安检系统给「同一业务含义」分配的 items 编号**不一样**：
 > 硬编码 `items2` 会把某家的「安检过程中照片」误标成表具照片。
+> 用气性质同理——某家公司把农村煤改气居民写成「煤改气」而不是「民用」，
+> 只匹配字面「民用」会整批漏掉。
+> 未配置的公司按默认值处理（items2 / items1 / 不拦用气性质），不会静默丢数据。
+
+**抽样池口径**（`db.checkable_cond`，与报告分母完全同口径）：
+
+```
+入户  AND  用气性质在白名单内  AND  该户有表具照片  AND  未被标记「查不了」
+```
+
+没有表具照片的户**不进抽样池**——抽查的核心是核对表号，连表都没拍到的户抽出来只能产出一条噪声。
+被撤销抽样的户会打上 `records.meter_skip=1` 永久排除，否则补抽会反复选回同一户。
 
 ### 3. Excel 数据源要求
 
@@ -128,7 +147,9 @@ FORM_ITEMS  = {"C1": "items0"}     # 该公司安检单照片所在项，默认 
 + 若干「XX照片」列（值为图片 URL，多行分隔）
 ```
 
-只处理 `安检状态 == 入户` 的行；同一客户编号取最新一条安检记录。
+只处理 `安检状态 == 入户` 的行；同一客户编号（同一来源文件内）取最新一条安检记录。
+照片列的值是图片 URL（单元格内多行用换行分隔）；URL 里的 `-f_itemsN` 后缀决定它属于哪个检查项，
+没有后缀的按「列名 → items_code」映射兜底（映射从库内历史数据反查，首次导入读表头样本）。
 
 ### 4. 启动
 
@@ -156,8 +177,9 @@ Agent 会自动完成 导入 → 抽样 → 下载 → 亲自读图逐户判定 
 ```bash
 cd ai
 python cli.py prepare --file "<xlsx>" --limit 0 --workers 6 --fresh  # 导入+抽样+下载
-python scripts/batch.py pack --n 32 --company C1 --month 2026-09 --no-sheets
+python scripts/batch.py pack --n 32 --company C1 --month 2026-09
 #    → 按 reports/_packs/b<N>/checklist.md 直读原图，写 reports/_batch<N>.json
+#    （2026-11 起默认不出水印条带/表号联排图；要出得显式加 --sheets，且不作为判定依据）
 python scripts/batch.py gap      --file reports/_batch<N>.json      # 水印间隔核算
 python scripts/batch.py precheck --file reports/_batch<N>.json      # 提交前预检
 python cli.py bulk               --file reports/_batch<N>.json      # 批量落库
@@ -167,22 +189,41 @@ python cli.py finish --month 2026-09
 
 ---
 
-## 五个页面
+## 六个页面
 
 | 页面 | 地址 | 用途 |
 |---|---|---|
-| 总览 | `/` | 各分公司进度卡片 + 断点续传状态 |
+| 总览 | `/` | 各分公司进度卡片 + 断点续传状态 + **时间范围切换**（单月 / 上月 / 全年 / 上年 / 自定义区间 / 全部），右上角有本地照片清理提醒 |
 | 实时看板 | `/live` | 大字进度条 + 当前户 + 实时问题流，给领导投影用 |
-| 人工复核 | `/review` | 逐户过有问题的人；三档按钮（`1` 误判 / `↑` 一般提示 / `↓` 严重提示 / `←` `→` 翻页）+ 现场问题多选标签 |
-| 月度报告 | `/report` | 整体简报 + 各分公司卡片，可单家下载 |
+| 人工复核 | `/review` | 逐户过有问题的人；三档按钮（`1` 误判 / `↑` 一般提示 / `↓` 严重提示 / `←` `→` 翻页）+ 现场问题多选标签；顶栏可切月份，也可切到**专项任务**队列 |
+| 月度报告 | `/report` | 「情况说明」四块分组（抽查范围 / 人工审核 / 问题发现 / 符合率）+ 各分公司卡片，可单家下载、导出 Excel、**导入公司回填的反馈** |
+| 专项任务 | `/special` | 按名单做全量复核（不抽样），独立库、不碰主库；汇总 + 问题清单 + 复核工作台同页 |
 | 设置 | `/settings` | 模型来源、抽样比例、并发、费用上限、待删保留天数 |
 
-报告导出两个版本：
+**报告下载三种形态**：
 
-```bash
-python cli.py report --company C1 --month 2026-09 --embed   # 单文件版，照片内嵌，可直接外发
-python cli.py report --company C1 --month 2026-09           # 外链版，几百 KB，需联网看原图
+| 形态 | 入口 | 用途 |
+|---|---|---|
+| HTML 报告 | 报告页「下载」/ `cli.py report` | 发领导；`--embed` 版照片内嵌单文件，非 `--embed` 版走外链几百 KB |
+| Excel 明细表 | 报告页「导出Excel」 | 一户一行，照片只给链接，末列「公司反馈」留空给分公司填 |
+| 公司反馈回填 | 报告页「导入公司反馈」 | 读回填的 Excel，把「公司反馈」写进该户的人工审核意见，不改判定 |
+
+---
+
+## 时间范围（2026-11 起）
+
+总览与报告统一按月份字符串 `YYYY-MM` 取数，**同一组参数贯穿所有接口**，保证「总览数字 = 报告数字」：
+
 ```
+?period=month&month=2026-10     单月
+?period=year&year=2026          全年
+?period=lastyear | lastmonth    上年 / 上月
+?period=custom&mfrom=2026-08&mto=2026-10   自定义区间（含两端）
+?period=all                     全部
+```
+
+多月并存靠 `records` 的唯一约束 `(company, cust_no, src_file)` —— 同一客户 9 月、10 月各一条记录互不覆盖。
+**老库升级时会自动重建该表并原样搬迁 `id`**（checks / issues / reviews / photos 全按 `record_id` 关联，id 变了历史复核意见会成孤儿）。
 
 ---
 
@@ -225,27 +266,34 @@ anjian-ai-qc/
 │   ├── server.py           HTTP 服务（Python 标准库，零依赖）+ SSE 实时推送
 │   ├── runner.py           编排：导入 → 抽样 → 下载 → 检测 → 分拣
 │   ├── engine.py           判定规则 + 提示词 + 照片分拣
-│   ├── db.py               SQLite（WAL）+ 口径常量 + 公司/items 映射  ← 接自己的数据改这里
+│   ├── db.py               SQLite（WAL）+ 口径常量 + 公司/items/用气性质映射  ← 接自己的数据改这里
 │   ├── cli.py              Agent 通道命令行（prepare/next/submit/bulk/status/finish/report）
-│   ├── report_data.py      报告数据层（分公司汇总、复核裁决）
+│   ├── report_data.py      报告数据层（分公司汇总、复核裁决、可查户分母）
 │   ├── report_render.py    报告渲染（纯 SQL + 模板，零大模型调用）
+│   ├── report_xlsx.py      抽查明细 Excel 导出 / 公司反馈回填
 │   ├── _bulk_many.py       批量落库助手（一次进程连续 bulk，失败自动重试）
+│   ├── special_server.py   专项任务子系统（独立库 special/special.db，主库只读）
+│   ├── special_report.py   专项任务报告（外链版 HTML）
+│   ├── special_xlsx.py     专项任务 Excel 导出
 │   ├── models/             模型适配层：填 base_url/key/model_id 即换视觉模型（默认 DeepSeek）
 │   ├── static/             前端页面（原生 HTML/CSS/JS，无构建步骤）
 │   ├── scripts/
-│   │   ├── batch.py        批处理：pack / gap / zoom / precheck / postcheck
+│   │   ├── batch.py        批处理：pack / gap / precheck / postcheck
 │   │   ├── barcode*.py     条码解码交叉验证（pyzbar + zxingcpp）
 │   │   ├── ocr_meter.py    OCR 读表号（RapidOCR）
 │   │   ├── meter_band.py   自动定位表号带
 │   │   ├── packpool.py     按 rid 池切分打包，避免重复领同一批户
 │   │   └── acceptance.py   三轮验收（数据一致性 / 误判撤销 / 报告 / 接口健壮性）
+│   ├── special/tools/      专项任务命令行（建单/下载照片/补导辅助照片/领批/落判定）
 │   ├── photos/             有问题的照片（证据留存，运行时生成）
-│   ├── pending_delete/     无问题照片（30 天后清理，运行时生成）
+│   ├── pending_delete/     无问题照片（运行时生成，按月份定期清理）
 │   ├── false_positive/     人工复核判「误判」的照片（永久留档，运行时生成）
+│   ├── special/            专项任务库与照片（运行时生成）
 │   └── reports/            批次材料与导出报告（运行时生成）
 ├── docs/
 │   ├── 部署交接.md           ★ 给接手 Agent 的部署 SOP（含参数采集清单）
 │   ├── SKILL.md            Agent 工作流说明（喂给 Agent 用）
+│   ├── 使用说明.md          六个页面的操作说明（快捷键、时间范围、导出与回填）
 │   └── 子代理并行读图.md    ≥300 户时的子代理并行方法论
 ├── assets/
 │   ├── architecture.svg    架构图矢量版（可改，浏览器直接打开）
@@ -267,6 +315,16 @@ anjian-ai-qc/
 - 人工复核判「误判」的户，issues 不删除而是置 `active=0` 留档（`rev` 递增），
   审计日志写 `review_log`，支持撤销
 - 每日首次启动自动备份数据库（保留 7 天，SQLite backup API，WAL 下安全）
+
+**本地照片只为「读图」存在，判完即删。** 报告与导出的 HTML 一律用公司服务器上的图片外链，
+不嵌本地副本，所以本地照片可以整月清掉而不影响报告：
+
+| 机制 | 说明 |
+|---|---|
+| 分拣 | 有问题的户进 `photos/`，无问题的进 `pending_delete/`，误判的进 `false_positive/`（永久留档） |
+| 清理期限 | **内容月份 + 2 个月的 15 号**（9 月的照片 → 11-15 前清完），总览页右上角有到期提醒 |
+| 一键清理 | 总览页点清理提醒，按月份删除；等价接口 `POST /api/photo_gc {"month":"2026-09"}` |
+| 为什么能删 | 报告里所有图片都是 URL 外链，本地只服务于模型读图；删了照片，报告照样能看图 |
 
 ---
 
