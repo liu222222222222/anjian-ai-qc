@@ -14,15 +14,48 @@
     <a href="/live">实时看板</a>
     <a href="/review">人工复核</a>
     <a href="/report">月度报告</a>
-    <a href="/settings">设置</a>
+    <a href="/special">专项任务</a>
+    <a href="/settings" title="高级设置（待完善）">设置<small style="font-size:11px;color:#9aa5b1;margin-left:2px">待完善</small></a>
   </nav>
   <div class="sp"></div>
+  <button id="gcPill" class="gcpill" style="display:none" onclick="openGc()" title="本地照片只为 AI 识别，用完即删"></button>
   <span class="hint"><span class="dot" id="dot"></span><span id="phaseTxt">加载中</span></span>
 </header>
 
 <div class="wrap">
-  <h1>各分公司安检抽查总览</h1>
+  <h1>六家分公司安检抽查总览</h1>
   <p class="sub">点公司卡片进入该家的报告与问题明细 · 每次只跑一家 · 跑完可随时接着跑（断点续查）</p>
+
+  <!-- 时间范围（2026-11-04 用户定）：单月 / 上月 / 全年 / 上年 / 自定义区间 -->
+  <div class="card" id="periodBar" style="margin-bottom:18px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div style="min-width:150px">
+        <label>快捷</label>
+        <select id="pQuick">
+          <option value="latest">最近有数据的月份</option>
+          <option value="month">指定月份</option>
+          <option value="lastmonth">上月</option>
+          <option value="year">本年全年</option>
+          <option value="lastyear">上年全年</option>
+          <option value="custom">自定义区间</option>
+          <option value="all">全部数据</option>
+        </select>
+      </div>
+      <div style="min-width:150px" id="wrapMonth">
+        <label>月份</label><select id="pMonth"></select>
+      </div>
+      <div style="min-width:150px;display:none" id="wrapFrom">
+        <label>起始月</label><select id="pFrom"></select>
+      </div>
+      <div style="min-width:150px;display:none" id="wrapTo">
+        <label>截止月</label><select id="pTo"></select>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:10px">
+        <button class="pri" id="btnPeriod">应用</button>
+        <span class="hint" id="rangeTxt">—</span>
+      </div>
+    </div>
+  </div>
 
   <div class="cards">
     <div class="card"><div class="n" id="tRec">0</div><div class="l">累计抽查户数</div></div>
@@ -44,7 +77,7 @@
     <button class="pri" onclick="location.href='/live'">实时看板</button>
     <button onclick="location.href='/review'">人工复核</button>
     <button onclick="location.href='/report'">月度报告</button>
-    <button id="btnExp" onclick="exp6()">一键生成全部分公司报告</button>
+    <button id="btnExp" onclick="exp6()">一键生成六家报告</button>
     <button onclick="location.href='/settings'">设置 / 运行参数</button>
     <span id="expMsg" style="color:var(--dim);font-size:13px"></span>
   </div>
@@ -61,25 +94,95 @@
 <script>
 const $=id=>document.getElementById(id);
 
+// ---------------- 时间范围（2026-11-04） ----------------
+// 状态：period 取值 latest/month/lastmonth/year/lastyear/custom/all
+// 所有接口都带同一组参数，保证「总览数字 = 报告数字」同口径
+let months=[], period='latest', curMonth='', curFrom='', curTo='';
+
+function monLabel(m){
+  const p=String(m||'').split('-');
+  return p.length===2?`${p[0]}年${parseInt(p[1],10)}月`:m;
+}
+function periodQS(){
+  // 返回可直接拼到 URL 的查询串（不含 ?）
+  if(period==='latest'||period==='month'){
+    return curMonth?('period=month&month='+encodeURIComponent(curMonth)):'period=all';
+  }
+  if(period==='lastmonth') return 'period=lastmonth';
+  if(period==='year') return 'period=year&year='+(curMonth?curMonth.slice(0,4):'');
+  if(period==='lastyear') return 'period=lastyear';
+  if(period==='custom'){
+    return 'period=custom&mfrom='+encodeURIComponent(curFrom)+'&mto='+encodeURIComponent(curTo);
+  }
+  return 'period=all';
+}
+
+async function initPeriods(){
+  try{
+    const d=await (await fetch('/api/dashboard?period=all')).json();
+    months=d.months||[];
+  }catch(e){ months=[]; }
+  const opts=months.map(m=>`<option value="${m}">${monLabel(m)}</option>`).join('')
+    || '<option value="">暂无数据</option>';
+  ['pMonth','pFrom','pTo'].forEach(id=>$(id).innerHTML=opts);
+  const q=new URLSearchParams(location.search);
+  if(q.get('month')){ period='month'; curMonth=q.get('month'); }
+  else if(q.get('from')&&q.get('to')){
+    period='custom'; curFrom=q.get('from'); curTo=q.get('to');
+    curMonth=curTo;
+  }
+  else if(months.length){ period='latest'; curMonth=months[0]; }
+  else { period='all'; }
+  if(!curFrom) curFrom=months.length?months[months.length-1]:'';
+  if(!curTo) curTo=months[0]||'';
+  $('pMonth').value=curMonth; $('pFrom').value=curFrom; $('pTo').value=curTo;
+  $('pQuick').value = (period==='month')?'month':(period==='custom'?'custom':'latest');
+  syncPeriodUI();
+}
+
+function syncPeriodUI(){
+  const v=$('pQuick').value;
+  // 「最近有数据的月份」与「指定月份」都只显示单月下拉
+  $('wrapMonth').style.display=(v==='month')?'':'none';
+  $('wrapFrom').style.display=(v==='custom')?'':'none';
+  $('wrapTo').style.display=(v==='custom')?'':'none';
+}
+
+async function applyPeriod(){
+  const v=$('pQuick').value;
+  period=v;
+  if(v==='month'||v==='latest') curMonth=$('pMonth').value||months[0]||'';
+  if(v==='year') curMonth=$('pMonth').value||months[0]||'';
+  if(v==='custom'){ curFrom=$('pFrom').value; curTo=$('pTo').value; }
+  const u=new URLSearchParams();
+  if(period==='month'||period==='latest'){ if(curMonth) u.set('month',curMonth); }
+  else if(period==='custom'){ u.set('from',curFrom); u.set('to',curTo); }
+  history.replaceState(null,'',location.pathname+(u.toString()?'?'+u:''));
+  await load(); await loadResume();
+}
+
 async function load(){
   let d;
-  try{ d=await (await fetch('/api/dashboard')).json(); }
+  try{ d=await (await fetch('/api/dashboard?'+periodQS())).json(); }
   catch(e){ $('phaseTxt').textContent='服务未启动'; return; }
+  if(d.months&&d.months.length&&!months.length){ months=d.months; }
   render(d.companies);
   const s=d.companies.reduce((a,c)=>({
-    rec:a.rec+c.done_records, ok:a.ok+c.ok_house,
+    rec:a.rec+(c.total_records||0), done:a.done+(c.done_records||0), ok:a.ok+c.ok_house,
     crit:a.crit+c.crit_house, warn:a.warn+c.warn_house
-  }),{rec:0,ok:0,crit:0,warn:0});
-  $('tRec').textContent=s.rec; $('tOk').textContent=s.ok;
+  }),{rec:0,done:0,ok:0,crit:0,warn:0});
+  // 「累计抽查户数」用抽样户（total_records），未判的月也能看出抽了多少；
+  // 已判数放在下方小字，避免 10 月这种「刚抽完未判」显示成 0 户
+  $('tRec').innerHTML=s.rec+(s.done!==s.rec?`<span style="font-size:13px;color:var(--dim);font-weight:400">（已判 ${s.done}）</span>`:'');
+  $('tOk').textContent=s.ok;
   $('tCrit').textContent=s.crit; $('tWarn').textContent=s.warn;
+  $('tRv').textContent=(d.pending_review!=null?d.pending_review:0);
   try{
-    const rv=await (await fetch('/api/queue')).json();
-    $('tRv').textContent=rv.pending||0;
     const pd=await (await fetch('/api/pending')).json();
     $('tPh').textContent=pd.total_files||0;
   }catch(e){}
-  const months=[...new Set(d.companies.map(c=>c.month).filter(Boolean))].sort();
-  $('monthTag').textContent=months.length?`最新月份 ${months[months.length-1]}`:'';
+  $('rangeTxt').textContent='当前范围：'+((d.range&&d.range.label)||'全部数据');
+  $('monthTag').textContent=(d.range&&d.range.label)?`（${d.range.label}）`:'';
   const doing=d.companies.find(c=>c.tagcls==='doing');
   $('dot').className='dot'+(doing?' busy on':'');
   $('phaseTxt').textContent=doing?`${doing.name} 进行中 ${doing.done_records}/${doing.total_records}`:'待机';
@@ -115,15 +218,15 @@ async function exp6(){
       $('expMsg').textContent='没有可生成的数据（'+(r.skipped||[]).join('；')+'）';
     }
   }catch(e){ $('expMsg').textContent='失败：'+e; }
-  btn.disabled=false; btn.textContent='一键生成全部分公司报告';
+  btn.disabled=false; btn.textContent='一键生成六家报告';
 }
 
 async function loadResume(){
   try{
-    const d=await (await fetch('/api/resume')).json();
+    const d=await (await fetch('/api/resume?'+periodQS())).json();
     $('resumeBox').innerHTML=`<table><thead><tr>
       <th style="width:110px">分公司</th><th style="width:90px">状态</th>
-      <th style="width:170px">进度</th><th>续跑位置</th></tr></thead><tbody>`+
+      <th style="width:170px">进度（${(d.range&&d.range.label)||'全部数据'}）</th><th>续跑位置</th></tr></thead><tbody>`+
       d.companies.map(c=>`<tr>
         <td><b>${c.name}</b></td>
         <td><span class="b ${c.state==='已完成'?'bg':(c.state==='进行中'?'bw':'bi')}">${c.state}</span></td>
@@ -133,7 +236,113 @@ async function loadResume(){
   }catch(e){ $('resumeBox').innerHTML='<div class="hint">读取失败</div>'; }
 }
 
-load(); loadResume(); setInterval(load,6000); setInterval(loadResume,15000);
+$('pQuick').onchange=syncPeriodUI;
+$('btnPeriod').onclick=applyPeriod;
+
+(async ()=>{ await initPeriods(); await load(); })();
+loadResume();
+setInterval(load,6000);
+setInterval(loadResume,15000);
+</script>
+<div class="modal" id="gcModal">
+  <div class="mbox">
+    <div class="mhd"><h3>本地照片清理</h3><span class="x" onclick="closeGc()">×</span></div>
+    <div class="mbd">
+      <div class="gcwarn">
+        报告和页面看图一律走公司服务器外链，本地下载的照片只在 AI 识别时用。
+        <b>内容月份 + 2 个月的 15 号</b> 前清掉即可（9 月内容 → 11-15）。
+      </div>
+      <div class="gcpaths" id="gcPaths"></div>
+      <table class="gctb" id="gcTable">
+        <thead><tr><th>安检月份</th><th class="num">张数</th><th class="num">占用</th>
+          <th>清理期限</th><th class="num">剩余</th><th>文件夹位置</th>
+          <th class="num">操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="mft"><button class="btn" onclick="closeGc()">关闭</button></div>
+  </div>
+</div>
+<script>
+let GC = null;
+async function loadGc(){
+  try{
+    const r = await fetch('/api/photo_gc').then(x=>x.json());
+    GC = r;
+    const p = document.getElementById('gcPill');
+    if(!r || !r.total_count){ p.style.display='none'; return; }
+    p.style.display='inline-flex';
+    const u = (r.items||[]).find(x=>x.days_left!==null && x.days_left<=7);
+    const overdue = (r.items||[]).filter(x=>x.days_left!==null && x.days_left<0);
+    let cls='gcpill', txt='';
+    if(overdue.length){
+      cls+=' due'; txt='🗑 已逾期 ' + Math.abs(Math.min(...overdue.map(x=>x.days_left))) + ' 天 · ' + r.total_count.toLocaleString() + ' 张待删';
+    } else if(u){
+      cls+=' warn'; txt='🗑 ' + u.month + ' 图片 ' + r.total_count.toLocaleString() + ' 张 · ' + u.days_left + ' 天后到期';
+    } else {
+      txt='🗑 本地图片 ' + r.total_count.toLocaleString() + ' 张';
+    }
+    p.className = cls;
+    p.innerHTML = '<span>'+txt+'</span>';
+  }catch(e){}
+}
+function openGc(){
+  if(!GC) return;
+  const tb = document.querySelector('#gcTable tbody');
+  const items = GC.items||[];
+  // 顶部两个根目录
+  const pw = document.getElementById('gcPaths');
+  if(pw){
+    const roots = GC.roots || [];
+    pw.innerHTML = '<span class="gclab">本地目录</span>' + roots.map(r=>
+      '<span class="gcpath" data-path="'+r+'" onclick="openFolder(this.dataset.path)" title="'+r+'">'
+      + '📁 ' + r.replace(/^.*[\\/]ai[\\/]/,'ai\\') + '</span>').join('');
+  }
+  if(!items.length){
+    tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9aa5b1;padding:26px">本地没有待清理的照片</td></tr>';
+  } else {
+    tb.innerHTML = items.map(x=>{
+      const d = x.days_left;
+      const dcls = d===null?'ok':(d<0?'due':(d<=7?'soon':'ok'));
+      const dtxt = d===null?'—':(d<0?('逾期 '+Math.abs(d)+' 天'):(d+' 天'));
+      const p0 = (x.paths && x.paths[0]) || '';
+      const hasP = (x.paths||[]).some(p=>p.indexOf('\\photos\\')>=0);
+      const hasD = (x.paths||[]).some(p=>p.indexOf('\\pending_delete\\')>=0);
+      const roots = GC.roots || [];
+      let loc = '';
+      if(hasP && roots[0]) loc += '<span class="gcpath" data-path="'+roots[0]+'" onclick="openFolder(this.dataset.path)" title="'+roots[0]+'">📁 photos</span>';
+      if(hasD && roots[1]) loc += '<span class="gcpath" data-path="'+roots[1]+'" onclick="openFolder(this.dataset.path)" title="'+roots[1]+'">📁 pending_delete</span>';
+      return '<tr><td><b>'+x.month+'</b></td>'
+        +'<td class="num">'+x.count.toLocaleString()+'</td>'
+        +'<td class="num">'+x.mb+' MB</td>'
+        +'<td>'+x.deadline+'</td>'
+        +'<td class="num '+dcls+'">'+dtxt+'</td>'
+        +'<td>'+loc+'</td>'
+        +'<td class="num"><button class="btn" onclick="doGc(\''+x.month+'\','+x.count+','+x.mb+')">清理</button></td></tr>';
+    }).join('');
+  }
+  document.getElementById('gcModal').classList.add('on');
+}
+async function openFolder(path){
+  if(!path) return;
+  try{
+    const r = await fetch('/api/open_folder',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({path:path})}).then(x=>x.json());
+    if(r.error) alert('打不开：'+r.error);
+  }catch(e){ alert('打不开：'+e.message); }
+}
+function closeGc(){ document.getElementById('gcModal').classList.remove('on'); }
+async function doGc(month, n, mb){
+  if(!confirm('确认删除 '+month+' 的 '+n.toLocaleString()+' 张本地照片（'+mb+' MB）？\n\n删除后不可恢复。报告和页面看图走公司服务器外链，不受影响。')) return;
+  if(!confirm('再确认一次：真的要删除 '+month+' 的全部本地照片吗？')) return;
+  const r = await fetch('/api/photo_gc',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({month:month})}).then(x=>x.json());
+  if(r.error){ alert('失败：'+r.error); return; }
+  alert('已删除 '+r.removed.toLocaleString()+' 张，释放 '+r.mb+' MB');
+  await loadGc(); openGc();
+}
+loadGc();
+setInterval(loadGc, 60000);
 </script>
 </body>
 </html>

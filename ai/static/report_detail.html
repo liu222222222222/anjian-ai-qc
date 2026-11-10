@@ -41,6 +41,8 @@ iframe{width:100%;height:calc(100vh - 118px);border:none;background:#f4f6f8;disp
 
 <script>
 const $=id=>document.getElementById(id);
+// '2026-10' -> '2026年10月'（月份去前导零）
+function monLabel(m){const p=String(m||'').split('-');return p.length===2?`${p[0]}年${parseInt(p[1],10)}月`:m;}
 const q=new URLSearchParams(location.search);
 const CODE=(q.get('company')||'').toUpperCase();
 const MONTH=q.get('month')||'';
@@ -71,8 +73,9 @@ async function init(){
   const c=d.companies.find(x=>x.code===CODE);
   if(c){
     $('tName').textContent=c.name+' · 安检抽查报告';
-    $('tMeta').textContent=(MONTH?MONTH.replace('-','年')+'月':'本月')
+    $('tMeta').textContent=(MONTH?monLabel(MONTH):'本月')
       +' · 入户 '+c.total_house.toLocaleString()+' 户 / 抽查 '+c.sampled+' 户'
+      +((c.done_house!=null&&c.done_house<c.sampled)?('（已判 '+c.done_house+' 户，未判完）'):'')
       +' / 严重 '+c.critical_house+' 户 / 提示 '+c.warning_house+' 户'
       +' / 已人工审核 '+c.reviewed+' 户'
       +(c.fp_excluded?(' / 其中误判剔除 '+c.fp_excluded+' 户'):'')

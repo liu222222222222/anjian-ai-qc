@@ -31,14 +31,10 @@ def load_batch(n):
 
 
 def meter_photo(con, rid, company):
-    mc = D.meter_code(company or "")
-    row = con.execute(
-        "SELECT local FROM photos WHERE record_id=? AND items_code=? AND downloaded=1 "
-        "ORDER BY id LIMIT 1", (rid, mc)).fetchone()
-    if not row or not row["local"]:
-        return None
-    p = os.path.join(D.BASE, row["local"])
-    return p if os.path.exists(p) else None
+    # A 公司表具照片有两列（items4 / items17），meter_photo_paths 按 meter_codes
+    # 顺序返回，取第一张即可；仅 items17 有图的户会自动落到那张
+    ps = D.meter_photo_paths(con, rid, company or "")
+    return ps[0] if ps else None
 
 
 def norm(s):

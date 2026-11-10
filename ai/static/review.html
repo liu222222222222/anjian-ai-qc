@@ -8,6 +8,10 @@
 <style>
 body{overflow:hidden;display:flex;flex-direction:column;height:100vh}
 header{flex:none}
+/* 顶部月份选择（2026-11-04）：跨月查看时切换复核队列所属月份 */
+.mtpick{display:flex;align-items:center;gap:6px;margin-right:14px}
+.mtpick label{margin:0;font-size:12.5px;color:var(--dim);white-space:nowrap}
+.mtpick select{width:auto;min-width:118px;padding:5px 9px;font-size:12.5px}
 .vtop{display:flex;align-items:center;gap:16px;padding:11px 24px;background:var(--panel);
   border-bottom:1px solid var(--line);flex:none}
 .vtop h1{font-size:17px;margin:0;white-space:nowrap}
@@ -28,6 +32,13 @@ header{flex:none}
 .lmeta div{margin-bottom:3px}
 .lmeta b{color:var(--hi)}
 .photos{flex:1;overflow-y:auto;align-content:start;padding-right:4px}
+.phsum{font-size:11.5px;color:var(--dim);padding:2px 2px 6px;flex:none}
+.phsum b{color:var(--hi);font-weight:600}
+.phsum .warnx{color:var(--red)}
+figure.ext img{filter:grayscale(.12)}
+figure.nop{cursor:default;background:#f4f6f8;border:1px dashed #d3d9e0;border-radius:6px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:110px;
+  color:#9aa5b1;font-size:12px}
 .side{display:flex;flex-direction:column;gap:10px;min-height:0;overflow-y:auto;overflow-x:hidden;
   padding-right:2px}
 .side::-webkit-scrollbar{width:6px}
@@ -156,6 +167,7 @@ header{flex:none}
 .cotab .dotd{color:#2e7d32;font-weight:700}
 .cotab.on .dotd{color:#fff}
 .cotip{font-size:11.5px;color:var(--dim);margin-left:8px;white-space:nowrap}
+.phnote{font-size:11px;color:#8b95a3;font-weight:400}
 </style>
 </head>
 <body>
@@ -166,9 +178,12 @@ header{flex:none}
     <a href="/live">实时看板</a>
     <a href="/review" class="on">人工复核</a>
     <a href="/report">月度报告</a>
-    <a href="/settings">设置</a>
+    <a href="/special">专项任务</a>
+    <a href="/settings" title="高级设置（待完善）">设置<small style="font-size:11px;color:#9aa5b1;margin-left:2px">待完善</small></a>
   </nav>
   <div class="sp"></div>
+  <span class="mtpick"><label>月份</label><select id="monSel"></select></span>
+  <span class="mtpick"><label>专项</label><select id="spSel" style="min-width:190px"></select></span>
   <span class="hint" id="cntTxt">—</span>
 </header>
 
@@ -207,6 +222,7 @@ header{flex:none}
       <span><i style="background:#f0d999"></i>黄框 = 提示</span>
       <span><i style="background:var(--line)"></i>白框 = 该户其它照片</span>
     </div>
+    <div class="phsum" id="phsum"></div>
     <div class="photos" id="pgrid"></div>
   </div>
 
@@ -270,6 +286,11 @@ let rows=[], cur=0, doneMap={}, lbIdx=-1;
 
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 // 比较用规范化：去所有空白、全角标点归一 → 兼容「照片拍摄不清晰 ！…」这类旧文案
+const srcOf=p=>{
+  const u=(p&&(p.path||p.url))||'';
+  if(!u) return '';
+  return /^https?:\/\//i.test(u) ? u : ('/'+u.replace(/^\/+/,''));
+};
 const norm=s=>String(s||'').replace(/\s+/g,'').replace(/[！]/g,'!').replace(/[。．]/g,'.')
   .replace(/[，、]/g,',').replace(/[；;]/g,'');
 // 把明细里的「335.5 小时 / 14 天」这类关键量值挑出来加重
@@ -383,10 +404,35 @@ function splitNote(raw, autoText){
 }
 
 // 公司分组（2026-10-16）：各公司独立队列，已完成复核的公司排在右侧
+// 月份（2026-11-04）：顶栏可切月，队列与统计都按所选月份过滤
 let coGroups=[], curCo=(new URLSearchParams(location.search).get('company')||'').toUpperCase();
+let curMonth=new URLSearchParams(location.search).get('month')||'';
+let curTask=new URLSearchParams(location.search).get('task')||'';
+let SP_INFO=null;   // 当前专项任务元数据
+
+function monQ(prefix){
+  return curMonth?((prefix||'?')+'month='+encodeURIComponent(curMonth)):'';
+}
 
 async function loadGroups(){
-  const s = await (await fetch('/api/queue?summary=1')).json();
+  if(curTask){
+    try{
+      const r=await (await fetch('/api/special/tasks')).json();
+      const t=(r.tasks||[]).find(x=>String(x.id)===String(curTask));
+      if(t){
+        SP_INFO=t;
+        coGroups=[{code:'__SP__',name:t.company_name,total:t.total,
+                   done:t.reviewed,pending:0,sp:t}];
+        curCo='__SP__';
+        renderTabs();
+        await loadQueue();
+        return;
+      }
+    }catch(e){}
+    curTask='';
+  }
+  SP_INFO=null;
+  const s = await (await fetch('/api/queue?summary=1'+monQ('&'))).json();
   coGroups = s.groups||[];
   // 未完成的在前（待复核多的优先），已完成的排后
   coGroups.sort((a,b)=>((b.pending>0)-(a.pending>0)) || (b.pending-a.pending)
@@ -401,6 +447,17 @@ async function loadGroups(){
 function coName(code){ const g=coGroups.find(x=>x.code===code); return g?g.name:(code||''); }
 
 function renderTabs(){
+  if(curTask && SP_INFO){
+    const t=SP_INFO;
+    const d=(t.created_at||'').slice(0,10).replace(/-/g,'');
+    const n=(t.inspectors||[]).length;
+    $('coTabs').innerHTML=`<div class="cotab on" style="cursor:default;max-width:none">
+        <b>${t.company_name}${d}-${t.total}户</b>
+        <span class="n">专项复核 · ${t.month} · 名单 ${n} 人</span>
+      </div>
+      <span class="cotip">${t.name||''}　·　把「专项」下拉切回「不使用（月度）」即恢复月度复核</span>`;
+    return;
+  }
   const unfinished = coGroups.filter(g=>g.pending>0).length;
   $('coTabs').innerHTML = coGroups.map(g=>`
     <button class="cotab ${g.code===curCo?'on':''}" onclick="switchCo('${g.code}')"
@@ -423,12 +480,26 @@ async function switchCo(code){
 
 async function loadQueue(){
   const po=($('onlyP')&&$('onlyP').checked)?'1':'0';
+  if(curTask){
+    const d=await (await fetch('/api/special/queue?id='+curTask+'&pending_only='+po)).json();
+    rows=d.rows||[];
+    doneMap={};
+    rows.forEach(r=>{ if(r.review && r.review.reviewer!=='月度复核') doneMap[r.record_id]=r.review; });
+    if(coGroups[0]) coGroups[0].pending=d.pending||0;
+    const t=SP_INFO||{};
+    $('cntTxt').textContent=`专项 ${t.company_name||''} ${t.month||''} · 共 ${t.total||0} 户：待复核 ${d.pending||0} 户 · 已复核 ${d.done||0} 户`;
+    cur=rows.findIndex(r=>!doneMap[r.record_id]);
+    if(cur<0) cur=0;
+    render();
+    return;
+  }
   const d=await (await fetch('/api/queue?company='+encodeURIComponent(curCo)
-    +'&pending_only='+po)).json();
+    +'&pending_only='+po+monQ('&'))).json();
   rows=d.rows||[];
-  const dn=await (await fetch('/api/reviews')).json();
+  const dn=await (await fetch('/api/reviews'+monQ('?'))).json();
   doneMap={}; (dn.rows||[]).forEach(r=>doneMap[r.record_id]=r);
-  $('cntTxt').textContent=`${coName(curCo)}：待复核 ${d.pending||0} 户 · 已复核 ${d.done||0} 户`;
+  $('cntTxt').textContent=`${coName(curCo)}：待复核 ${d.pending||0} 户 · 已复核 ${d.done||0} 户`
+    + (curMonth?`　（${monLabel(curMonth)}）`:'');
   cur=rows.findIndex(r=>!doneMap[r.record_id]);
   if(cur<0) cur=0;
   render();
@@ -455,9 +526,10 @@ function jumpCust(){
 async function undoReview(){
   const r=rows[cur]; if(!r) return;
   if(!confirm('撤销本户复核？\n撤销后该户回到待复核，系统判定原样生效。')) return;
-  const res=await fetch('/api/review/undo',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({record_id:r.record_id,reviewer:'管理员'})});
+  const _b={record_id:r.record_id,reviewer:'管理员'};
+  if(curTask) _b.task_id=parseInt(curTask,10);
+  const res=await fetch(curTask?'/api/special/review/undo':'/api/review/undo',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(_b)});
   const j=await res.json();
   if(j.error){ alert(j.error); return; }
   delete doneMap[r.record_id];
@@ -500,16 +572,31 @@ function render(){
   }).join('') : '<div class="empty" style="padding:16px 2px;font-size:12px">本户无系统判定问题</div>';
 
   const bad={}; iss.forEach(i=>{ if(i.items_code) bad[i.items_code]=i; });
-  $('pgrid').innerHTML=(r.photos||[]).map((p,i)=>{
+  const allPh=(r.photos||[]);
+  const nEmpty=allPh.filter(p=>p.empty).length;
+  const nExt=allPh.filter(p=>p.ext_only&&!p.empty).length;
+  const nJudge=allPh.length-nEmpty-nExt;
+  const _items=new Set(allPh.map(x=>x.items_code)).size;
+  $('phsum').innerHTML=`检查项 <b>${r.ph_items||_items}</b> 个 · 共 <b>${allPh.length}</b> 张`+
+    (nEmpty?` · <span class="warnx">未拍摄 ${nEmpty} 项</span>`:'')+
+    (nExt?` · 其中 ${nExt} 张辅助照片（外链，仅展示）`:'');
+
+  $('pgrid').innerHTML=allPh.map((p,i)=>{
+    if(p.empty){
+      return `<figure class="nop" data-i="${i}"><div>未拍摄</div>`
+        +`<figcaption style="margin-top:4px;font-size:11px">${p.name||''}</figcaption></figure>`;
+    }
     const iss=bad[p.items_code];
-    const cls=iss?(iss.severity==='critical'?'bad':(iss.severity==='warning'?'warn':'')):'';
-    const flag=iss?`<div class="flag">${iss.kind}</div>`:'';
-    return `<figure class="${cls}" data-i="${i}"><img src="/${p.path}" loading="lazy">`
+    const isExt=!!p.ext_only;
+    const cls=isExt?'ext':(iss?(iss.severity==='critical'?'bad':(iss.severity==='warning'?'warn':'')):'');
+    const flag=isExt?'<div class="flag" style="background:rgba(107,118,132,.88)">仅展示</div>'
+                    :(iss?`<div class="flag">${iss.kind}</div>`:'');
+    return `<figure class="${cls}" data-i="${i}"><img src="${srcOf(p)}" loading="lazy" onerror="this.style.opacity=.25;this.alt='图片未加载'">`
       +`${flag}<figcaption>${p.name||isImg[p.items_code]||p.items_code}</figcaption></figure>`;
   }).join('');
   $('pgrid').querySelectorAll('figure').forEach(f=>{
     const i=parseInt(f.dataset.i,10);
-    f.onclick=()=>lbOpen(i);
+    f.onclick=()=>{ if(!allPh[i]||allPh[i].empty) return; lbOpen(i); };
   });
 
   const rv=doneMap[r.record_id];
@@ -545,7 +632,7 @@ function lbOpen(i){
   const ps=(rows[cur]||{}).photos||[];
   if(!ps[i]) return;
   lbIdx=i;
-  $('lbImg').src='/'+ps[i].path;
+  $('lbImg').src=srcOf(ps[i]);
   lbUpd();
   $('lb').classList.add('on');
 }
@@ -561,7 +648,7 @@ function lbGo(d){
   const n=lbIdx+d;
   if(n<0||n>=ps.length) return;
   lbIdx=n;
-  $('lbImg').src='/'+ps[n].path;
+  $('lbImg').src=srcOf(ps[n]);
   lbUpd();
 }
 
@@ -580,9 +667,11 @@ async function save(v){
   const nauto=(ta.dataset.auto||'').trim();
   // 人工真写的那部分：剔除自动识别段与已勾选标签后剩下的
   const nmanual=manualOf(note, nauto);
-  await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({record_id:r.record_id,verdict:v,note:note,
-      note_auto:nauto,note_manual:nmanual,reviewer:'管理员'})});
+  const _pl={record_id:r.record_id,verdict:v,note:note,
+      note_auto:nauto,note_manual:nmanual,reviewer:'管理员'};
+  if(curTask) _pl.task_id=parseInt(curTask,10);
+  await fetch(curTask?'/api/special/review':'/api/review',
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_pl)});
   const wasNew = !doneMap[r.record_id];
   doneMap[r.record_id]={verdict:v,note:note,tags:[...picked]};
   if(wasNew){
@@ -603,9 +692,9 @@ async function save(v){
         $('cntTxt').textContent=`✓ ${coName(prevCo)} 复核已完成，已切到 ${next.name}（待复核 ${next.pending} 户）`;
       }else{
         render();
-        $('progTxt').textContent=`✓ ${coName(prevCo)} 复核完毕`;
+        $('progTxt').textContent=`✓ ${curTask?'专项':'本公司'} 复核完毕`;
         $('bar').style.width='100%';
-        $('cntTxt').textContent='✓ 所有公司复核均已完成';
+        $('cntTxt').textContent=curTask?'✓ 本专项任务待复核户已全部处理':'✓ 所有公司复核均已完成';
       }
       return;
     }
@@ -642,7 +731,70 @@ document.addEventListener('keydown',e=>{
   }
 });
 
-load();
+// 月份下拉（2026-11-04）：从库里取可选月份，切月即刷新复核队列
+function monLabel(m){
+  const p=String(m||'').split('-');
+  return p.length===2?`${p[0]}年${parseInt(p[1],10)}月`:m;
+}
+async function initMonths(){
+  const sel=$('monSel');
+  let list=[];
+  try{
+    const r=await (await fetch('/api/months')).json();
+    list=r.months||[];
+  }catch(e){ list=[]; }
+  if(!list.length){ sel.innerHTML='<option value="">暂无数据</option>'; sel.disabled=true; return; }
+  sel.innerHTML=list.map(m=>{
+    const lab=monLabel(m.month);
+    return `<option value="${m.month}">${lab}（已抽 ${m.sampled||0} 户）</option>`;
+  }).join('');
+  const vals=list.map(m=>m.month);
+  if(!curMonth||!vals.includes(curMonth)){
+    const withS=list.find(m=>m.sampled>0);
+    curMonth=withS?withS.month:vals[0];
+  }
+  sel.value=curMonth;
+  sel.onchange=async ()=>{
+    curMonth=sel.value;
+    curTask='';                     // 切月份即回月度队列
+    if($('spSel')) $('spSel').value='';
+    sel.disabled=false;
+    const u=new URLSearchParams(location.search);
+    u.delete('task');
+    if(curMonth) u.set('month',curMonth); else u.delete('month');
+    history.replaceState(null,'',location.pathname+(u.toString()?'?'+u:'')); 
+    await loadGroups();
+  };
+}
+
+// 专项任务下拉（2026-11-09）：选中后队列切到专项库，月份置灰
+async function initTasks(){
+  const sel=$('spSel');
+  if(!sel) return;
+  let list=[];
+  try{
+    const r=await (await fetch('/api/special/tasks')).json();
+    list=r.tasks||[];
+  }catch(e){ list=[]; }
+  sel.innerHTML='<option value="">不使用（月度）</option>'+list.map(t=>{
+    const d=String(t.created_at||'').slice(0,10).replace(/-/g,'');
+    return `<option value="${t.id}">${t.company_name}${d}-${t.total}户</option>`;
+  }).join('');
+  if(curTask && !list.some(t=>String(t.id)===String(curTask))) curTask='';
+  sel.value=curTask||'';
+  $('monSel').disabled = !!curTask;
+  sel.onchange=async ()=>{
+    curTask=sel.value;
+    $('monSel').disabled = !!curTask;
+    const u=new URLSearchParams(location.search);
+    if(curTask) u.set('task',curTask); else u.delete('task');
+    history.replaceState(null,'',location.pathname+(u.toString()?'?'+u:''));
+    await loadGroups();
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
+}
+
+(async ()=>{ await initMonths(); await initTasks(); await load(); })();
 </script>
 </body>
 </html>

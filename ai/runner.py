@@ -25,19 +25,108 @@ def month_of(check_time):
 
 
 def clean_urls(value):
+    """拆出 Excel 单元格里的全部图片 URL（一行一个）
+
+    2026-10-22：原来是 `endswith(ext) and ITEMS_RE.search(u)` 两个条件同时要满足，
+    结果把「文件名里没有 -f_itemsN 后缀」的那类 URL 整条丢掉了 ——
+    各家安检系统还导出一种原始名（B 公司「…_图片_新表照片_张三_2026-09-05_08-58-52.jpg」、
+    D 公司「IMG_5134_李四_20260924070228.JPG」），这些恰恰是真实上传的照片。
+    丢掉后 records.photo_count=0、建不出 checks，抽到的户直接凭空消失（实测 B 公司 22 户、
+    C 公司 32 户、D 公司 25 户被判「无照片」，其中 B 公司 21 户源表其实有表具照片）。
+
+    改为：只要扩展名合法就先收下；items_code 由 items_of(url, col, cmap) 定，
+    后缀优先、无后缀回退用「列名 → items_code」映射。
+    """
     if not value:
         return []
     out = []
     for line in str(value).split("\n"):
         u = line.strip()
-        if u.lower().endswith(VALID_EXT) and ITEMS_RE.search(u):
+        if u.lower().endswith(VALID_EXT):
             out.append(u)
     return out
 
 
-def items_of(url):
-    m = ITEMS_RE.search(url)
-    return m.group(1).lower() if m else None
+def items_of(url, col=None, cmap=None):
+    """该 URL 属于哪个检查项：优先文件名后缀，无后缀时用列名映射兜底
+
+    col  —— Excel 原始列名（如「表具照片（要清晰看到止方和表号）」）
+    cmap —— {列名: items_code}，由 build_col_map() 从库内已有数据反查
+    """
+    m = ITEMS_RE.search(url or "")
+    if m:
+        return m.group(1).lower()
+    if col and cmap:
+        return cmap.get(col)
+    return None
+
+
+def build_col_map(con, company):
+    """反查「Excel 列名 → items_code」映射：取该列历史上出现最多的 items_code
+
+    依据是本表里**带后缀**的那批 URL 已经由安检系统自己标好了 items_code，
+    同一列的无后缀 URL 必然属于同一检查项。
+    （例：B 公司「总体安检照片」绝大多数是 overall_path，少量杂音 items4/items5 不采纳）
+    """
+    out = {}
+    for r in con.execute(
+            """SELECT category, items_code, COUNT(*) n FROM photos
+               WHERE company=? AND category IS NOT NULL AND category!=''
+               GROUP BY category, items_code ORDER BY category, n DESC""", (company,)):
+        # 同一 category 的第一条就是出现最多的（ORDER BY n DESC）
+        out.setdefault(r["category"], r["items_code"])
+    return out
+
+
+def build_col_map_from_sheet(src_file, company, max_scan=800):
+    """从 Excel 自身反查列名 → items_code（首次导入、库里还没数据时用）
+
+    只扫带后缀的 URL 来定列归属，扫到 max_scan 个 URL 就够了 ——
+    同一列的 items_code 是稳定的，不必读完整表（C 公司表有 13 万个 URL）。
+    """
+    from openpyxl import load_workbook
+    wb = load_workbook(src_file, read_only=True, data_only=True)
+    ws = wb.worksheets[0]
+    rows = ws.iter_rows(values_only=True)
+    header = [str(h).strip() if h else "" for h in next(rows)]
+    pcols = [h for h in header if h and ("照片" in h or "图片" in h)]
+    pidx = {h: i for i, h in enumerate(header) if h in pcols}
+    counts = {}
+    seen = 0
+    for r in rows:
+        if seen >= max_scan:
+            break
+        for col, i in pidx.items():
+            if i >= len(r) or not r[i]:
+                continue
+            for line in str(r[i]).split("\n"):
+                u = line.strip()
+                m = ITEMS_RE.search(u)
+                if not m:
+                    continue
+                d = counts.setdefault(col, {})
+                k = m.group(1).lower()
+                d[k] = d.get(k, 0) + 1
+                seen += 1
+    wb.close()
+    out = {}
+    for col, d in counts.items():
+        out[col] = max(d.items(), key=lambda kv: kv[1])[0]
+    # 整列都没有后缀 URL 时，按列名语义兜底（否则这些照片仍会被丢）
+    for col in pcols:
+        if col in out:
+            continue
+        if "表具" in col:
+            out[col] = D.meter_code(company)
+        elif "总体" in col or "汇总" in col:
+            out[col] = "overall_path"
+        elif "环境" in col:
+            out[col] = "items3"
+        elif "过程" in col:
+            out[col] = "items2"
+        elif "单据" in col or "工单" in col:
+            out[col] = D.form_code(company)
+    return out
 
 
 class Job:
@@ -168,6 +257,12 @@ class Job:
         company = self.company
         month = self.month
         n = 0
+        # 列名 → items_code 映射：无后缀 URL 靠它兜底（见 clean_urls 注释）
+        #   库里有同列的历史数据就反查；首次导入退化为直接读 Excel 头部样本。
+        # ★ 必须在循环外算一次：build_col_map 会对 photos 做全表 GROUP BY，
+        #   放进逐行循环里，1.5 万行 × 49 万行聚合 → 导入直接卡死
+        #   （2026-11-04 A 公司 10 月实测 8 分钟零写入）
+        cmap = build_col_map(con, company) or build_col_map_from_sheet(src_file, company)
         for r in rows:
             if not r or not r[idx["客户编号"]]:
                 continue
@@ -175,6 +270,11 @@ class Job:
             status = str(r[idx["安检状态"]] or "").strip()
             # 只保留入户
             if status != "入户":
+                continue
+            # 只保留民用（2026-10-21 用户定：以后安检一律只查民用）
+            # 白名单按公司配置，见 db.GAS_NATURE_WHITELIST —— 各家叫法不统一，
+            # B 公司的农村煤改气居民写的是「煤改气」，不能只匹配字面 "民用"
+            if not D.gas_allowed(company, str(r[idx["用气性质"]] or "")):
                 continue
             # 同客户取最新
             cur = con.execute(
@@ -199,7 +299,7 @@ class Job:
                  str(r[idx["表类型"]] or ""), str(r[idx["表品牌表型号"]] or ""),
                  str(r[idx["用气性质"]] or ""), str(r[idx["表号"]] or ""),
                  str(r[idx["隐患明细"]] or ""), 0, os.path.basename(src_file))).lastrowid
-            # 照片行（同户同 URL 跨列重复只存一条：某些户
+            # 照片行（同户同 URL 跨列重复只存一条：A 公司有 4 户
             # 「总体安检照片」与「安检过程中照片」填了同一 URL，
             # 会撞 photos(record_id,url) 唯一约束）
             pc = 0
@@ -209,7 +309,7 @@ class Job:
                     if u in seen_urls:
                         continue
                     seen_urls.add(u)
-                    ic = items_of(u)
+                    ic = items_of(u, col, cmap)
                     if not ic:
                         continue
                     # 表具照片按 Excel 列名判定（A 公司在 items4，E 公司在 items2，
@@ -230,28 +330,56 @@ class Job:
 
     # ---------- 抽样 ----------
     def sample(self, con):
-        """每个安检员查本人入户总数的 ratio，不足 min 户查 min 户"""
+        """每个安检员查本人入户总数的 ratio，不足 min 户查 min 户
+
+        2026-10-22 用户定：**没有表具照片的户不进抽样池**。
+        抽查核心是核对表号，没拍到表的户抽出来只能产出一条「查不了」的噪声。
+        """
         ratio = float(self.cfg.get("sample_ratio", 0.1))
         minp = int(self.cfg.get("min_per_inspector", 1))
+        # 2026-10-22：池子 = 入户(导入时已筛) + 民用 + 有表具照片 + 未标记查不了
+        mcond, margs = D.checkable_cond(self.company)
+        # 2026-11-04：多月份隔离。records 没有 month 列，月份取 check_time 前 7 位。
+        # 不加这个条件会跨月抽样 —— 抽 10 月时把 9 月的户一起放进池子，
+        # 且下面 `sampled=0 WHERE company=?` 会把上月已抽标记整体清零（9 月报告数字会归零）。
+        mon = (self.month or "").strip()
+        mcond_mon, margs_mon = "", []
+        if mon:
+            mcond_mon = " AND substr(r.check_time,1,7)=?"
+            margs_mon = [mon]
         rows = con.execute(
-            "SELECT id FROM records WHERE company=? ORDER BY inspector, id", (self.company,)).fetchall()
+            f"SELECT id, inspector FROM records r WHERE r.company=? AND {mcond}"
+            f"{mcond_mon} ORDER BY inspector, id",
+            [self.company] + margs + margs_mon).fetchall()
         by = {}
         for r in rows:
-            insp = con.execute("SELECT inspector FROM records WHERE id=?", (r["id"],)).fetchone()["inspector"]
-            by.setdefault(insp or "(未填)", []).append(r["id"])
+            by.setdefault(r["inspector"] or "(未填)", []).append(r["id"])
         picked = []
         for insp, ids in by.items():
             n = max(minp, int(len(ids) * ratio + 0.5))
             n = min(n, len(ids))
             picked.extend(ids[:n])
-        # 打标记（sampled 列由 db.py 的 SCHEMA / _migrate 保证存在）
-        con.execute("UPDATE records SET sampled=0 WHERE company=?", (self.company,))
+        # 打标记：只清本月，别动其他月份已抽的户
+        if mon:
+            con.execute(
+                "UPDATE records SET sampled=0 WHERE company=? AND substr(check_time,1,7)=?",
+                (self.company, mon))
+        else:
+            con.execute("UPDATE records SET sampled=0 WHERE company=?", (self.company,))
         for i in range(0, len(picked), 500):
             con.executemany("UPDATE records SET sampled=1 WHERE id=?",
                             [(i,) for i in picked[i:i + 500]])
         con.commit()
+        # 若库里已有 sampled 列缺失则补
+        self._ensure_sampled(con)
         self.emit("sampled", total=len(picked), inspectors=len(by))
         return picked
+
+    def _ensure_sampled(self, con):
+        cols = [c[1] for c in con.execute("PRAGMA table_info(records)")]
+        if "sampled" not in cols:
+            con.execute("ALTER TABLE records ADD COLUMN sampled INTEGER DEFAULT 0")
+            con.commit()
 
     # ---------- checks ----------
     def build_checks(self, con, rec_ids):

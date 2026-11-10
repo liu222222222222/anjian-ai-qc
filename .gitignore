@@ -10,6 +10,10 @@ ai/false_positive/
 ai/reports/
 ai/models/_probe.jpg
 ai/server_run.log
+ai/special/S0*/
+ai/special/S0*/photo*
+ai/special/*.db
+ai/special/*.db-*
 ai/_tmp*/
 ai/_probe/
 ai/_verify/

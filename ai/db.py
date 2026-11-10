@@ -23,8 +23,9 @@ REPORTS_DIR = os.path.join(BASE, "reports")
 TIME_GAP_MIN = 168 * 60
 CONFIG_PATH = os.path.join(BASE, "config.json")
 
-# ★ 接入你自己的公司：改这里即可，其余代码全部按 code 走，无需改动。
-# 格式 (公司代码, 显示名)。代码建议 2-4 位大写字母，会出现在目录名与 URL 里。
+# ★ 接入你自己的公司：只改这一张表即可，其余代码全部按 code 走。
+#   格式 (公司代码, 显示名)。代码建议 2-4 位大写字母，会出现在库字段、目录名与 URL 里。
+#   下面 C1~C6 是脱敏占位，按你的实际分公司替换（家数可多可少）。
 COMPANY_ORDER = [
     ("C1", "A 公司"),
     ("C2", "B 公司"),
@@ -43,28 +44,106 @@ ITEMS_NAME = {
     "items9": "灶下检漏", "items10": "厨房全景", "overall_path": "总体安检照片",
 }
 
-# ★ 公司级差异（重要，接自己的数据前必读）：
-# 不同公司的安检系统给同一业务含义分配的 items 编号**不一样**，不能硬编码 items2：
-#   B/C/D/E/F 公司 → 表具 items2（安检单 items1；D 公司安检单是 items0）
-#   C 公司 → 表具 items1（安检单 items7）
-#   A 公司 → 表具 items4（安检单 items1）
-# 表号核对一律取 meter_code(company)；拿不准时用 photos.category LIKE '%表具%'
+# ★ 公司级差异（本系统最重要的一段业务知识，接自己的数据前必读）：
+# 同一业务含义的检查项，不同公司的安检系统分配 items 编号**不一样**，不能硬编码 items2。
+# 实测六家 Excel 后确认的对应关系（代码见 COMPANY_ORDER）：
+#   C2/C4/C5/C6 → 表具 items2（安检单 items1；C4 的安检单是 items0）
+#   C3          → 表具 items1（安检单 items7、灶具 items2）
+#   C1          → 表具 items4 + items17（两列都叫表具照片，任一图是燃气表即认）
+# 表号核对一律取 meter_codes(company)；拿不准时用 photos.category LIKE '%表具%'
 # 或 photos.is_meter_photo=1（导入时已按 Excel 列名写入）。
-# 下面两张表按你的实际 Excel 列名调整；不动则按「默认 items2 / items1」处理。
 METER_ITEMS = {
-    "C1": "items4",   # A 公司：表具照片所在项
-    "C3": "items1",   # C 公司：表具照片所在项
+    # C1 的表具照片分散在两列（2026-09 改版后新增「燃气表-表具照片」列 → items17）：
+    # items4 优先（device8 主通道），items17 兜底（device1 上传）
+    "C1": ("items4", "items17"),
+    "C3": ("items1",),   # C3：表具照片（该司安检单在 items7）
 }
-# 安检单拍照所在 items_code（默认 items1；D 公司是 items0、C 公司是 items7）
+# 安检单拍照所在的 items_code（默认 items1；C4 是 items0、C3 是 items7）
 FORM_ITEMS = {
     "C4": "items0",
     "C3": "items7",
 }
 
+# ★ 用气性质白名单（导入筛选条件，与「安检状态=入户」同级）：
+# 只查「民用」，商用/工业/公福/学校/集体全剔。
+# 各家系统对民用的叫法不统一（煤改气、热水器、民用采暖1…），必须按公司配白名单，
+# 不能只匹配字符串 "民用"，否则会漏掉整批煤改气居民户（实测单家公司上万户）。
+GAS_NATURE_WHITELIST = {
+    "C1": ("民用", "乡镇民用"),
+    "C2": ("民用", "民用取暖", "煤改气民用取暖", "煤改气民用采暖", "煤改气"),
+    "C3": ("民用", "民用采暖1", "民用煤改气1", "煤改气民用取暖", "物联网煤改气民用阶梯"),
+    "C4": ("民用", "民用取暖", "热水器"),
+    "C5": ("民用", "民用采暖1", "煤改气民用取暖"),
+    "C6": ("民用", "煤改气民用炊事", "煤改气民用取暖"),
+}
+
+
+def gas_allowed(company, gas_nature):
+    """该户用气性质是否属于本公司可抽查范围（民用）"""
+    wl = GAS_NATURE_WHITELIST.get((company or "").upper())
+    if not wl:                      # 未配置的公司不拦，避免静默丢掉整家公司
+        return True
+    return (gas_nature or "").strip() in wl
+
+
+def gas_nature_cond(company, alias="r"):
+    """与 gas_allowed() 等价的 SQL 条件 + 参数（供报告分母等聚合查询用）
+
+    未配置白名单的公司返回 (\"1=1\", [])，不拦。
+    """
+    wl = GAS_NATURE_WHITELIST.get((company or "").upper())
+    if not wl:
+        return "1=1", []
+    ph = ",".join("?" * len(wl))
+    return f"TRIM(COALESCE({alias}.gas_nature,'')) IN ({ph})", list(wl)
+
+
+def checkable_cond(company, alias="r"):
+    """「可抽查户」条件 = 民用 + 有表具照片 + 未被标记查不了（与抽样池完全同口径）
+
+    meter_skip 是 2026-10-22 加的持久标记：撤销抽样时置 1。
+    不能只靠 `sampled=0` —— 撤销后重新补抽会把同一户又选回来（A 公司实测 8 户死循环）。
+    """
+    g, ga = gas_nature_cond(company, alias)
+    m, ma = meter_photo_cond(company, alias)
+    return (f"({g}) AND ({m}) AND COALESCE({alias}.meter_skip,0)=0"), ga + ma
+
+
+def pool_cond(company, alias="r"):
+    """抽样池条件（checkable_cond 的别名，语义更直白）"""
+    return checkable_cond(company, alias)
+
+
+def meter_codes(company):
+    """该公司表具照片可能所在的全部 items_code（A 公司有两个）"""
+    v = METER_ITEMS.get((company or "").upper())
+    if not v:
+        return ("items2",)
+    return v if isinstance(v, tuple) else (v,)
+
 
 def meter_code(company):
-    """该公司表具照片所在的 items_code（默认 items2）"""
-    return METER_ITEMS.get((company or "").upper(), "items2")
+    """该公司表具照片的主 items_code（默认 items2）；多值公司取第一个"""
+    return meter_codes(company)[0]
+
+
+def meter_photo_paths(con, record_id, company):
+    """该户全部表具照片的本地绝对路径，按 meter_codes 顺序（A 公司 items4 → items17）
+
+    OCR / 条码解码等辅助脚本用它做多图交叉验证：单张解不出表号时换另一张试。
+    """
+    out = []
+    for mc in meter_codes(company):
+        for row in con.execute(
+                "SELECT local FROM photos WHERE record_id=? AND items_code=? "
+                "AND downloaded=1 ORDER BY id", (record_id, mc)).fetchall():
+            loc = row["local"] if isinstance(row, sqlite3.Row) else row[0]
+            if not loc:
+                continue
+            p = os.path.join(BASE, loc)
+            if os.path.exists(p) and p not in out:
+                out.append(p)
+    return out
 
 
 def form_code(company):
@@ -72,16 +151,33 @@ def form_code(company):
     return FORM_ITEMS.get((company or "").upper(), "items1")
 
 
+def meter_photo_cond(company, alias="r"):
+    """「该户有表具照片」的 SQL 条件 + 参数（2026-10-22 用户定）
+
+    没有表具照片的户**不进抽样池** —— 抽查核心是核对表号，
+    这户连表都没拍到，抽出来只能产出一条「查不了」的噪声，白占人工复核工时。
+
+    判定条件（二者满足其一）：items_code ∈ meter_codes(公司)，或 category 含「表具」。
+    后者兜住 B 公司「表具整体照片(表具全景及防盗卡)」这类独立命名的整表全景列。
+    """
+    mcs = meter_codes(company)
+    ph = ",".join("?" * len(mcs))
+    cond = (f"EXISTS(SELECT 1 FROM photos p WHERE p.record_id={alias}.id "
+            f"AND (p.items_code IN ({ph}) OR p.category LIKE '%表具%'))")
+    return cond, list(mcs)
+
+
 def default_items(company):
     """默认要看的检查项（表具+安检单+热水器+总体），实际按该户是否有图过滤"""
-    return [meter_code(company), form_code(company), "items8", "overall_path"]
+    return list(meter_codes(company)) + [form_code(company), "items8", "overall_path"]
 
 
 def item_display(code, category, company):
     """检查项显示名：表具/安检单按公司口径给准；其余优先用 Excel 原始列名（去掉括号说明），
-    最后才回退 ITEMS_NAME —— 因为同一 items_code 在不同公司含义不同"""
+    最后才回退 ITEMS_NAME —— 因为同一 items_code 在不同公司含义不同
+    （如 items2 在 E 公司是表具、在 A 公司是安检过程中照片）"""
     c = (company or "").upper()
-    if code and code == meter_code(c):
+    if code and code in meter_codes(c):
         return "表具照片"
     if code and code == form_code(c):
         return "安检单拍照"
@@ -112,6 +208,7 @@ CREATE TABLE IF NOT EXISTS records (
     plan_type TEXT, meter_type TEXT, meter_brand TEXT, gas_nature TEXT,
     meter_no TEXT, hazard_raw TEXT, photo_count INTEGER,
     sampled INTEGER DEFAULT 0,          -- 是否被本次抽样命中（报告口径按 sampled=1 过滤）
+    meter_skip INTEGER DEFAULT 0,       -- 1=已判定「查不了表号」，永久排除出抽样池
     src_file TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(company, cust_no, src_file)
 );
@@ -143,7 +240,10 @@ CREATE TABLE IF NOT EXISTS issues (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER, record_id INTEGER NOT NULL, company TEXT, month TEXT,
     items_code TEXT, photo_id INTEGER, severity TEXT, kind TEXT,
-    detail TEXT, evidence TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    detail TEXT, evidence TEXT DEFAULT '',
+    active INTEGER DEFAULT 1,           -- 0=历史版本（重判后留档），1=当前生效
+    rev INTEGER DEFAULT 1,              -- 该户第几次判定
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_issues_run ON issues(run_id);
 -- 人工基准（ground truth，用于持续对模型准确率）
@@ -191,17 +291,83 @@ def _has_col(con, table, col):
     return any(r[1] == col for r in con.execute(f"PRAGMA table_info({table})"))
 
 
-def _migrate(con):
-    """幂等迁移：给老库补字段
+def _unique_cols(con, table):
+    """返回 table 的 UNIQUE 约束列（取第一个唯一索引）。"""
+    try:
+        for row in con.execute(f"PRAGMA index_list({table})"):
+            # row: seq, name, unique, origin('u'=UNIQUE 约束), partial
+            if row[2] == 1 and (row[3] or "") == "u":
+                return [r[2] for r in con.execute(f'PRAGMA index_info("{row[1]}")')]
+    except Exception:
+        pass
+    return []
 
-    records.sampled  —— 是否被抽样命中（报告/看板口径都按 sampled=1 过滤）
-    issues.active    —— 0=历史版本（重判后留档），1=当前生效
-    issues.rev       —— 该户第几次判定
-    reviews.note_auto / note_manual —— 区分「系统自动识别」与「人工真写」
+
+def _fix_records_unique(con):
+    """把 records 的唯一约束升到 (company,cust_no,src_file)（2026-11-04）。
+
+    老库实际是 UNIQUE(company,cust_no)，与 SCHEMA 声明不一致 —— 这是早期建表留下的，
+    当时还没做多月并存。后果：10 月导入时只要某客户 9 月也检过，就撞
+    `IntegrityError: UNIQUE constraint failed: records.company, records.cust_no`，
+    整家公司建不了档（2026-11-04 A 公司实测 2 户重叠即全表中断）。
+
+    重建表必须**原样搬 id**：checks/issues/reviews/photos 全部按 record_id 关联，
+    id 一变，9 月的人工复核意见和问题明细就全成孤儿。
+    """
+    cols = _unique_cols(con, "records")
+    if not cols or "src_file" in cols:
+        return False
+    info = list(con.execute("PRAGMA table_info(records)"))
+    names = [r[1] for r in info]
+    defs = []
+    for r in info:
+        name, typ, notnull, dflt, pk = r[1], (r[2] or ""), r[3], r[4], r[5]
+        if pk and name == "id":
+            defs.append(f"{name} {typ} PRIMARY KEY AUTOINCREMENT".strip())
+            continue
+        d = f"{name} {typ}".strip()
+        if notnull:
+            d += " NOT NULL"
+        if dflt is not None:
+            d += f" DEFAULT {dflt}"
+        defs.append(d)
+    defs.append("UNIQUE(company, cust_no, src_file)")
+    collist = ", ".join(f'"{c}"' for c in names)
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        con.execute(f"CREATE TABLE records__new ({', '.join(defs)})")
+        con.execute(f"INSERT INTO records__new ({collist}) SELECT {collist} FROM records")
+        con.execute("DROP TABLE records")
+        con.execute("ALTER TABLE records__new RENAME TO records")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_records_company ON records(company)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_records_inspector ON records(inspector)")
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    return True
+
+
+def _migrate(con):
+    """幂等迁移：给老库补字段（2026-10-19 数据链路改造）
+    issues.active  —— 0=历史版本（重判后留档），1=当前生效
+    issues.rev     —— 该户第几次判定
+    reviews.note_auto / note_manual —— 区分"系统自动识别"与"人工真写"
+    records.meter_skip —— 1=已判定「查不了表号」（无表具照片/拍的不是表），
+                          永久排除出抽样池。不能只靠 sampled=0 —— 撤销后重新补抽
+                          会把它又选回来（实测某公司 8 户死循环）
+    records.sampled —— 是否被抽样命中（报告/看板口径都按 sampled=1 过滤）
     """
     changed = False
+    # records 唯一约束升级（2026-11-04）：老库是 (company,cust_no)，换月重导必撞。
+    # 放在最前：后面的补列都依赖 records 存在且可用。
+    if _fix_records_unique(con):
+        changed = True
     if not _has_col(con, "records", "sampled"):
         con.execute("ALTER TABLE records ADD COLUMN sampled INTEGER DEFAULT 0")
+        changed = True
+    if not _has_col(con, "records", "meter_skip"):
+        con.execute("ALTER TABLE records ADD COLUMN meter_skip INTEGER DEFAULT 0")
         changed = True
     if not _has_col(con, "issues", "active"):
         con.execute("ALTER TABLE issues ADD COLUMN active INTEGER DEFAULT 1")

@@ -149,11 +149,24 @@ def judge(parsed):
 
 
 def fetch(url, retries=3, timeout=90):
-    """免认证直连下载照片"""
+    """免认证直连下载照片
+
+    2026-10-22：URL 路径里可能含**中文**（B 公司「…_图片_新表照片_张三_2026-09-05.jpg」、
+    D 公司「IMG_5134_李四_….JPG」这类系统原始名），
+    旧的 `urllib.request.Request(url)` 直接抛 `'ascii' codec can't encode`，
+    导致这批照片一张都下不来。改为对 path 段做 percent-encode（quote，保留 / 和 :）。
+    """
+    import urllib.parse as _up
+    parts = urllib.parse.urlsplit(url)
+    safe_url = urllib.parse.urlunsplit((
+        parts.scheme, parts.netloc,
+        _up.quote(parts.path, safe="/%:@!$&'()*+,;=~"),   # 已编码的 %XX 不再二次编码
+        _up.quote_plus(parts.query, safe="=&%:@!$'()*+,;~/?") if parts.query else "",
+        parts.fragment))
     last = None
     for i in range(retries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            req = urllib.request.Request(safe_url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=timeout, context=CTX) as resp:
                 return resp.read()
         except Exception as e:

@@ -2,17 +2,16 @@
 # -*- coding: utf-8 -*-
 """批次操作工具 — 安检抽查 Agent 通道的"一条命令"流水线
 
-把多批反复手工执行的准备动作固化成命令：
-  pack      领一批 → 生成 水印联排图 / 表号联排图 / checklist / batch.json
+把一个月几十批反复手工执行的准备动作固化成命令：
+  pack      领一批 → 生成 checklist / batch.json（默认不出切图，直读原图）
   gap       批量算「水印时间 vs 工单时间」间隔，标出 >168h 与边界值（168h 一刀切）
-  zoom      单户单区域高倍放大（边界复核用）
+  zoom      【已作废 2026-11-05】图片零处理，不再裁切放大；保留仅兼容旧脚本
   precheck  提交前预检（表号编辑距离 / gap 边界 / 字段矛盾 / rid 存在性）
   postcheck 提交后核对（列出机械追加的问题，对比人工预期）
 
 用法（在 ai/ 目录下，必须用 venv python）：
-  python scripts/batch.py pack --n 32 --company C1 --month 2026-09
+  python scripts/batch.py pack --n 8 --company C1 --month 2026-09
   python scripts/batch.py gap --pairs "13755=2026-09-02 13:00:04,13769=2026-08-13 08:47:51"
-  python scripts/batch.py zoom --rids 13755,13769 --zone wm --scale 3
   python scripts/batch.py precheck --file reports/_batch24.json
   python scripts/batch.py postcheck --batch 24 --payload reports/_batch24.json
 """
@@ -85,17 +84,28 @@ def _lev(a, b):
 
 
 def _meter_paths(r):
-    """表具照片路径（公司差异：A 公司 items4、C 公司 items1，其余 items2）
+    """表具照片路径（公司差异：A 公司 items4+items17、C 公司 items1，其余 items2）
+
+    A 公司有两列都叫表具照片（items4 / items17），两图任一为燃气表即认，
+    所以按 meter_codes 顺序全部列出——items4 在前、items17 在后，
+    调用方取 paths[0] 时自然优先 items4。
 
     兜底：个别户的表具照片被系统挂在别的 items_code 下（实测 C3 有 22 户挂在 items2），
     按 items_name == '表具照片' 再认一次，避免 checklist 误标「⚠无表具照片」。
     """
-    mc = D.meter_code(r.get("company") or "")
-    hits = [it["path"] for it in r.get("items", []) if it.get("items_code") == mc]
+    mcs = D.meter_codes(r.get("company") or "")
+    items = r.get("items", []) or []
+    hits = []
+    for mc in mcs:
+        for it in items:
+            if it.get("items_code") == mc:
+                p = it.get("path")
+                if p and p not in hits:
+                    hits.append(p)
     if hits:
         return hits
-    return [it["path"] for it in r.get("items", [])
-            if (it.get("items_name") or "") == "表具照片"]
+    return [it["path"] for it in items
+            if (it.get("items_name") or "") == "表具照片" and it.get("path")]
 
 
 def _stamp(im, text, size):
@@ -202,10 +212,14 @@ def cmd_pack(a):
         rids = [x for x in re.split(r"[,\s]+", a.rids) if x]
         records = _records_from_db(rids)
     else:
-        cmd = [sys.executable, os.path.join(BASE, "cli.py"), "next",
-               "--n", str(a.n), "--items", D.meter_code((a.company or "").upper())]
+        # 注意：--items 是**全局**过滤器，会套到所有公司的户上。
+        # 所以只有明确了单公司时才按该公司的 meter_codes 传；
+        # 多公司混合（或未指定公司）时必须不传，让 cli.py 按每户
+        # 自己的 D.default_items(company) 取（A 公司 items4+items17 才不会被 items2 挤掉）。
+        cmd = [sys.executable, os.path.join(BASE, "cli.py"), "next", "--n", str(a.n)]
         if a.company:
-            cmd += ["--company", a.company]
+            cmd += ["--items", ",".join(D.meter_codes(a.company.upper())),
+                    "--company", a.company]
         if a.month:
             cmd += ["--month", a.month]
         p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
@@ -225,10 +239,11 @@ def cmd_pack(a):
     json.dump({"count": len(records), "records": records},
               open(bj, "w", encoding="utf-8"), ensure_ascii=False)
 
-    # 水印联排：3 户/张、宽 1400（读取时不被压缩，字比旧版大 ~75%）
-    # 2026-10-16 用户定：默认改为直读完整原图（--no-sheets），不再用切图联排做主读
+    # 水印联排 / 表号联排：2026-11-07 起**默认不生成**（图片零处理，只直读原图）。
+    # 旧行为是「默认生成、要加 --no-sheets 才不出」，只要有人忘了加参数就会产出
+    # 裁切联排图，代理拿去读 = 直接违反零处理口径。现在改成默认关、--sheets 才开。
     wm, mt = [], []
-    if not a.no_sheets:
+    if a.sheets:
         wm = _stack(records, WM_TOP, WM_BOT, os.path.join(pdir, "wm"),
                     per_sheet=3, target_w=1400, stamp_size=46, label_size=42)
         # 表号联排：4 户/张、宽 1000（辅助定位，主判定用直读原图）
@@ -305,7 +320,7 @@ def cmd_gap(a):
         if gap >= 168:
             verdict = "→ critical（超7天 %.1fh）" % gap
         elif gap >= 160:
-            verdict = "！边界 %.1fh 建议 zoom 复核" % gap
+            verdict = "！边界 %.1fh 请回原图直读水印复核" % gap
         elif gap >= 144:
             verdict = "边界带 %.1fh" % gap
         else:
@@ -318,11 +333,13 @@ def cmd_gap(a):
 
 
 # ============================================================
-# zoom —— 单户单区域高倍放大
-# 注：读图端会把大图缩到长边 1568px，所以"有效放大倍数"由【裁剪区域】决定，
-#     裁得越紧显示越大。水印复核默认只裁左侧 56%（水印文字在左）、底部 16%。
+# zoom —— 单户单区域高倍放大【已作废 2026-11-05】
+# ★ 用户定：图片零处理，直读原图。任何场景（含 critical 水印核对）都不用本命令。
+#   保留代码只为兼容旧脚本，跑起来会先打印作废警告。
 # ============================================================
 def cmd_zoom(a):
+    print("⚠ zoom 已作废（2026-11-05）：读图一律直读原图，不裁切/不放大。"
+          "命中复核规则的户请用 ViewImage 再读一次原图。", file=sys.stderr)
     rids = [x for x in re.split(r"[,\s]+", a.rids) if x]
     if not rids:
         print("用法: zoom --rids 13755,13769 --zone wm|mt --scale 3")
@@ -409,7 +426,7 @@ def cmd_precheck(a):
             else:
                 d = _lev(mr, mn)
                 if 1 <= d <= 2:
-                    msgs.append(("WARN", "表号 %s vs 档案 %s 编辑距离=%d —— 疑似单字符差异，务必 zoom --zone mt 复核！" % (p.get("meter_read"), rec["meter_no"], d)))
+                    msgs.append(("WARN", "表号 %s vs 档案 %s 编辑距离=%d —— 疑似单字符差异，请回原图直读核对！" % (p.get("meter_read"), rec["meter_no"], d)))
                 else:
                     msgs.append(("WARN", "表号 %s 与档案 %s 差异较大（若属特殊形态口径请确认 comment）" % (p.get("meter_read"), rec["meter_no"])))
         # 3) 时间检查
@@ -424,7 +441,7 @@ def cmd_precheck(a):
                 if gap >= 168:
                     msgs.append(("INFO", "gap=%.1fh 超7天，引擎将自动记 critical（确认水印读值无误）" % gap))
                 elif gap >= 160:
-                    msgs.append(("WARN", "gap=%.1fh 紧邻168h阈值 —— 务必 zoom --zone wm 复核水印！" % gap))
+                    msgs.append(("WARN", "gap=%.1fh 紧邻168h阈值 —— 请回原图直读水印复核！" % gap))
                 elif gap >= 144:
                     msgs.append(("INFO", "gap=%.1fh 边界带，注意复核" % gap))
                 elif w == c:
@@ -499,13 +516,17 @@ def main():
     sub = ap.add_subparsers(dest="cmd")
 
     p = sub.add_parser("pack", help="领批+生成读图材料")
-    p.add_argument("--n", type=int, default=32)
+    p.add_argument("--n", type=int, default=8,
+                   help="本批户数，默认 8（铁律 11：单批 8 户、并发 2）")
     p.add_argument("--batch", type=int, default=0, help="批次号，默认自动递增")
     p.add_argument("--company", default="")
     p.add_argument("--month", default="")
     p.add_argument("--rids", default="", help="调试用：手动指定户（逗号分隔）")
+    p.add_argument("--sheets", action="store_true",
+                   help="【默认关闭】生成水印/表号联排切图。2026-11-07 起默认不出图，"
+                        "只出 checklist 直读原图；仅在需要人工肉眼定位时显式开启")
     p.add_argument("--no-sheets", action="store_true",
-                   help="不生成联排切图，只用 checklist 直读完整原图（用户 2026-10-16 定的默认方式）")
+                   help="（兼容旧命令，已无作用：默认就不出切图）")
     p.set_defaults(fn=cmd_pack)
 
     p = sub.add_parser("gap", help="水印与工单间隔批量核算")
@@ -513,7 +534,7 @@ def main():
     p.add_argument("--file", default="", help="JSON: [{record_id, watermark_time}]")
     p.set_defaults(fn=cmd_gap)
 
-    p = sub.add_parser("zoom", help="单户单区域高倍放大")
+    p = sub.add_parser("zoom", help="【已作废】单户单区域高倍放大，改用直读原图")
     p.add_argument("--rids", required=True)
     p.add_argument("--zone", default="wm", choices=["wm", "mt"])
     p.add_argument("--scale", type=int, default=0)

@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>安检抽查系统 · 专项任务</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+:root{--sp:#7c3aed;--spbg:#f5f0ff}
+header nav a.on{color:var(--sp);border-bottom-color:var(--sp)}
+.taskline{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.chip{font-size:12px;padding:3px 10px;border-radius:12px;background:var(--panel2);
+  border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.chip.p{background:var(--spbg);color:var(--sp);border-color:#ddd0ff}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;font-weight:600;color:var(--dim);font-size:12px;
+  padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--panel2)}
+.tbl td{padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl tr:hover td{background:#fbfcfe}
+.tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+.rate{font-weight:700;font-size:15px}
+.rate.low{color:var(--red)}
+.rate.mid{color:var(--yellow)}
+.rate.hi{color:var(--green)}
+.badge{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:9px;font-weight:600}
+.badge.cr{background:var(--redbg);color:var(--red);border:1px solid #ffccc7}
+.badge.wa{background:var(--yellowbg);color:var(--yellow);border:1px solid #f0d999}
+.badge.ok{background:var(--greenbg);color:var(--green);border:1px solid #b7eb8f}
+.badge.pd{background:var(--panel2);color:var(--dim);border:1px solid var(--line)}
+.badge.ex{background:#f0f5ff;color:#2f54eb;border:1px solid #d6e4ff}
+
+.house{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  margin-bottom:12px;overflow:hidden}
+.house.hit{border-left:3px solid var(--red)}
+.house.warn{border-left:3px solid var(--yellow)}
+.house .hd{display:flex;align-items:center;gap:10px;padding:10px 14px;
+  background:var(--panel2);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.house .hd .cn{font-weight:700;color:var(--hi)}
+.house .hd .meta{font-size:12.5px;color:var(--dim)}
+.house .bd{display:grid;grid-template-columns:1fr 340px;gap:0}
+@media(max-width:1100px){.house .bd{grid-template-columns:1fr}}
+.shots{display:flex;gap:8px;padding:12px;overflow-x:auto;align-items:flex-start}
+.shots figure{margin:0;flex:0 0 auto;width:210px}
+.shots img{width:210px;height:158px;object-fit:cover;border-radius:6px;border:1px solid var(--line);
+  cursor:zoom-in;background:#eef1f5;display:block}
+.shots figcaption{font-size:11.5px;color:var(--dim);margin-top:4px;text-align:center}
+.shots .none{padding:20px;color:var(--dim);font-size:13px}
+.thumbwrap{position:relative;flex:0 0 280px;width:280px;height:186px;border-radius:6px;overflow:hidden;
+  cursor:zoom-in;background:#0d1520}
+.thumbwrap img{width:100%;height:100%;object-fit:cover;display:block}
+.thumbwrap .tflag{position:absolute;left:0;top:0;background:rgba(212,56,13,.92);color:#fff;
+  font-size:10.5px;padding:2px 8px;border-bottom-right-radius:7px;max-width:270px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.thumbwrap .tmore{position:absolute;right:0;bottom:0;background:rgba(13,21,32,.78);color:#fff;
+  font-size:11px;padding:3px 9px;border-top-left-radius:7px}
+.thumbwrap.nopic{cursor:default;display:flex;align-items:center;justify-content:center;
+  background:var(--panel2);color:var(--dim);font-size:12.5px;border:1px dashed var(--line)}
+.morebox{flex:0 0 auto;width:210px;height:158px;border:1px dashed var(--line);border-radius:6px;
+  background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;font-size:12.5px;color:var(--dim);text-align:center;text-decoration:none;line-height:1.5}
+.morebox span{font-size:11.5px;color:var(--blue)}
+a.morebox:hover{border-color:var(--blue);background:#f5f9ff}
+.jbox{padding:12px 14px;border-left:1px solid var(--line);background:#fcfdff}
+.jbox .cmt{font-size:12.5px;color:var(--txt);line-height:1.55;margin:6px 0 10px;
+  max-height:90px;overflow:auto}
+.iss{font-size:12.5px;margin:0 0 6px;padding:6px 9px;border-radius:6px;background:var(--panel2)}
+.iss b{font-weight:600}
+.iss.cr{background:var(--redbg)}
+.iss.wa{background:var(--yellowbg)}
+.vd{display:flex;gap:6px;margin-top:10px}
+.vd button{flex:1;padding:7px 4px;font-size:12.5px;border-radius:6px;display:flex;
+  flex-direction:column;gap:1px;line-height:1.25}
+.vd button i{font-style:normal;font-size:10px;opacity:.55}
+.vd button b{font-weight:600}
+.vd button span{font-size:10px;opacity:.6}
+.vd .fp.act{border-color:#2f54eb;color:#2f54eb;background:#f0f5ff}
+.vd .wa.act{border-color:var(--yellow);color:var(--yellow);background:var(--yellowbg)}
+.vd .cr.act{border-color:var(--red);color:var(--red);background:var(--redbg)}
+.tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.tag{font-size:11px;padding:2px 7px;border-radius:8px;background:var(--panel2);
+  border:1px solid var(--line);color:var(--dim);cursor:pointer}
+.tag.on{background:var(--spbg);border-color:#ddd0ff;color:var(--sp)}
+.note{width:100%;font-size:12.5px;padding:6px 8px;margin-top:8px;resize:vertical;min-height:34px}
+.rvline{font-size:12px;color:var(--sp);margin-top:8px}
+
+#lightbox{position:fixed;inset:0;background:rgba(8,12,18,.95);display:none;
+  flex-direction:column;z-index:999;padding:16px}
+#lightbox.on{display:flex}
+.lbtop{display:flex;align-items:center;color:#dfe6ee;font-size:13.5px;padding:0 4px 8px}
+.lbtop .x{margin-left:auto;cursor:pointer;font-size:22px;color:#aab4c0;padding:0 8px}
+.lbtop .x:hover{color:#fff}
+.lbmain{flex:1;position:relative;display:flex;align-items:center;justify-content:center;min-height:0}
+.lbmain img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;cursor:default}
+.lbmain .nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(35,46,60,.85);
+  color:#fff;border:0;width:44px;height:68px;border-radius:8px;cursor:pointer;font-size:22px}
+.lbmain .nav:hover{background:rgba(22,104,220,.9)}
+.lbmain .prev{left:8px}.lbmain .next{right:8px}
+.lbmain .nav:disabled{opacity:.2;cursor:default}
+.lbstrip{display:flex;gap:6px;justify-content:center;padding:10px 0 2px;overflow-x:auto}
+.lbstrip img{width:84px;height:58px;object-fit:cover;border-radius:5px;cursor:pointer;
+  border:2px solid transparent;opacity:.5;flex:none}
+.lbstrip img.on{border-color:var(--blue);opacity:1}
+.lbcap{text-align:center;color:#cdd6e0;font-size:12.5px;padding-top:6px}
+
+.newbox{display:none}
+.newbox.on{display:block}
+.inspick{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:6px;
+  max-height:230px;overflow:auto;padding:8px;background:var(--panel2);border:1px solid var(--line);
+  border-radius:8px}
+.inspick label{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--txt);
+  margin:0;padding:4px 6px;border-radius:5px;cursor:pointer}
+.inspick label:hover{background:#fff}
+.inspick input{width:auto;margin:0}
+.inspick em{font-style:normal;color:var(--dim);font-size:11.5px;margin-left:auto}
+.tcard{display:flex;justify-content:space-between;align-items:center;gap:14px;
+  padding:16px 18px;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;cursor:pointer;transition:.15s}
+.tcard:hover{border-color:var(--sp);box-shadow:0 3px 12px rgba(124,58,237,.08)}
+.tcard .tt{font-size:15.5px;font-weight:700;color:var(--hi)}
+.tcard .ts{font-size:12.5px;color:var(--dim);margin-top:3px}
+.pbar{height:7px;background:var(--panel2);border-radius:4px;overflow:hidden;width:180px}
+.pbar i{display:block;height:100%;background:var(--sp)}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">⚡ 安检照片<em>AI质检</em></div>
+  <nav>
+    <a href="/">总览</a>
+    <a href="/live">实时看板</a>
+    <a href="/review">人工复核</a>
+    <a href="/report">月度报告</a>
+    <a href="/special" class="on">专项任务</a>
+    <a href="/settings" title="高级设置（待完善）">设置<small style="font-size:11px;color:#9aa5b1;margin-left:2px">待完善</small></a>
+  </nav>
+  <div class="sp"></div>
+  <span class="hint" id="topHint">专项任务 · 独立库</span>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ 列表视图 ============ -->
+  <section id="viewList">
+    <h1>专项任务</h1>
+    <p class="sub">定向复检：指定公司 + 月份 + 人员名单，全量重查，独立库存储，与月度任务完全隔离</p>
+
+    <div style="display:flex;gap:10px;margin-bottom:18px">
+      <button class="pri" onclick="toggleNew(true)">＋ 新建专项</button>
+      <button onclick="loadTasks()">刷新</button>
+    </div>
+
+    <div class="card newbox" id="newBox" style="margin-bottom:20px">
+      <h2 style="margin:0 0 14px">新建专项任务</h2>
+      <div class="row">
+        <div>
+          <label>公司</label>
+          <select id="nCompany" onchange="loadInsp()"></select>
+        </div>
+        <div>
+          <label>月份（单月）</label>
+          <select id="nMonth" onchange="loadInsp()"></select>
+        </div>
+        <div>
+          <label>任务名称（可空）</label>
+          <input id="nName" placeholder="如：B 公司 9 月 9 人专项复核">
+        </div>
+      </div>
+      <label>需求说明</label>
+      <textarea id="nReq" rows="2" placeholder="如：办公会决定对 9 名符合率低于 20% 的安检员全量复核"></textarea>
+      <label style="margin-top:14px">人员名单（可多选，右侧数字=该人可查户数）</label>
+      <div class="inspick" id="nInsp"><span style="color:var(--dim);font-size:12.5px">先选公司和月份</span></div>
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center">
+        <button class="pri" id="btnCreate" onclick="createTask()">创建并拉取数据</button>
+        <button onclick="toggleNew(false)">取消</button>
+        <span class="hint" id="nHint">创建后自动复制名单内全部可查户（全量，不抽 10%）</span>
+      </div>
+    </div>
+
+    <div id="taskList"></div>
+  </section>
+
+  <!-- ============ 任务详情 ============ -->
+  <section id="viewTask" style="display:none">
+    <div class="taskline">
+      <button onclick="backList()">← 返回列表</button>
+      <span class="chip p" id="tCode">—</span>
+      <span class="chip" id="tRange">—</span>
+      <span class="chip" id="tReq">—</span>
+      <span style="flex:1"></span>
+      <a class="btn pri" id="btnExport" style="text-decoration:none"
+         href="#">导出报告（HTML）</a>
+      <a class="btn" id="btnXlsx" style="text-decoration:none"
+         href="#">导出 Excel</a>
+      <a class="btn" id="btnReview" style="text-decoration:none"
+         href="#">去人工复核</a>
+    </div>
+
+    <h1 id="tName">—</h1>
+    <p class="sub" id="tSub">—</p>
+
+    <div class="cards">
+      <div class="card"><div class="n" id="sTotal">0</div><div class="l">纳入户数（全量）</div></div>
+      <div class="card"><div class="n" id="sJudged">0</div><div class="l">已判定</div></div>
+      <div class="card"><div class="n" id="sReviewed">0</div><div class="l">已人工复核</div></div>
+      <div class="card"><div class="n" id="sRate">0%</div><div class="l" id="sRateL">全景符合率</div></div>
+      <div class="card"><div class="n" id="sRateM">—</div><div class="l" id="sRateML">原口径符合率</div></div>
+    </div>
+
+    <h2>符合率总表 <span class="hint" style="font-weight:400">两口径并列：全景 = 全部纳入户；原口径 = 月度已判户。未判定户不计入分母，302 户判完后两口径才会拉开差距</span></h2>
+    <div class="card" style="padding:0;overflow:auto">
+      <table class="tbl" id="sumTbl">
+        <thead>
+          <tr>
+            <th>安检员</th>
+            <th class="num">纳入户</th>
+            <th class="num">严重</th>
+            <th class="num">一般</th>
+            <th class="num">合格</th>
+            <th class="num">剔除</th>
+            <th class="num">全景符合率</th>
+            <th class="num">原口径户</th>
+            <th class="num">原口径符合率</th>
+            <th class="num">未拍摄燃气表</th>
+            <th class="num">档案类</th>
+            <th class="num">拍照质量</th>
+            <th class="num">现场真实性</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin:8px 0 0">符合率 = 合格户 ÷ 纳入户（判定为误判的户剔除后计入合格）。档案类问题单列，不自动剔除。</p>
+
+    <h2 style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      问题清单与人工复核
+      <span style="display:flex;gap:6px">
+        <button class="quick on" data-f="all" onclick="setFilter('all')">全部</button>
+        <button class="quick" data-f="undone" onclick="setFilter('undone')">待复核</button>
+        <button class="quick" data-f="issue" onclick="setFilter('issue')">有问题</button>
+      </span>
+      <span class="hint" id="listHint" style="font-weight:400"></span>
+    </h2>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <select id="fInsp" style="width:200px" onchange="renderHouses()">
+        <option value="">全部安检员</option>
+      </select>
+      <button onclick="window.print()">打印 / 另存 PDF</button>
+      <span class="hint">快捷键：1 误判 · 2 一般提示 · 3 严重提示 · ← → 上下户</span>
+    </div>
+
+    <div id="houses"></div>
+  </section>
+</div>
+
+<div id="lightbox">
+  <div class="lbtop"><span id="lbTitle"></span><span class="x" onclick="closeLb()">×</span></div>
+  <div class="lbmain">
+    <button class="nav prev" id="lbPrev" onclick="event.stopPropagation();lbGo(-1)">‹</button>
+    <img id="lbImg" alt="" onclick="event.stopPropagation()">
+    <button class="nav next" id="lbNext" onclick="event.stopPropagation();lbGo(1)">›</button>
+  </div>
+  <div class="lbstrip" id="lbStrip" onclick="event.stopPropagation()"></div>
+  <div class="lbcap" id="lbCap"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+// 2026-11-10 用户定：一律走公司服务器外链，本地下载的图只用于 AI 识别、用完即删
+const srcOf = p => {
+  const u = (p && (p.url || p.path)) || '';
+  if (!u) return '';
+  if (/^https?:\/\//i.test(u)) return u;
+  return '/' + u.replace(/^\/+/, '');
+};
+const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let TASKS = [], CUR = null, RECS = [], FILTER = 'all';
+
+/* ---------------- 任务列表 ---------------- */
+async function loadTasks(){
+  const r = await fetch('/api/special/tasks').then(x=>x.json());
+  TASKS = r.tasks || [];
+  renderList();
+}
+function renderList(){
+  const box = $('#taskList');
+  if(!TASKS.length){
+    box.innerHTML = '<div class="card" style="text-align:center;color:var(--dim);padding:44px">还没有专项任务，点上方「新建专项」开始</div>';
+    return;
+  }
+  box.innerHTML = TASKS.map(t=>{
+    const pct = t.total ? Math.round(t.judged*100/t.total) : 0;
+    const rp = t.total ? Math.round(t.reviewed*100/t.total) : 0;
+    return `<div class="tcard" onclick="openTask(${t.id})">
+      <div>
+        <div class="tt">${esc(t.name)}</div>
+        <div class="ts">${esc(t.company_name)} · ${esc(t.month)} · ${t.inspectors.length} 人 · 纳入 ${t.total} 户
+          · 已判 ${t.judged} · 已复核 ${t.reviewed}</div>
+      </div>
+      <div style="text-align:right;min-width:200px">
+        <div class="pbar" title="判定进度 ${pct}%"><i style="width:${pct}%"></i></div>
+        <div class="ts" style="margin-top:6px">判定 ${pct}% · 复核 ${rp}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------------- 新建 ---------------- */
+let OPT = {companies:[],months:[]};
+async function loadOptions(){
+  OPT = await fetch('/api/special/options').then(x=>x.json());
+  $('#nCompany').innerHTML = OPT.companies.map(c=>`<option value="${c.code}">${c.name}（${c.code}）</option>`).join('');
+  $('#nMonth').innerHTML = OPT.months.map(m=>`<option value="${m}">${m}</option>`).join('');
+  loadInsp();
+}
+async function loadInsp(){
+  const co = $('#nCompany').value, m = $('#nMonth').value;
+  if(!co || !m) return;
+  const r = await fetch(`/api/special/inspectors?company=${co}&month=${m}`).then(x=>x.json());
+  const list = r.inspectors || [];
+  $('#nInsp').innerHTML = list.length ? list.map(i=>
+    `<label><input type="checkbox" value="${esc(i.name)}"><span>${esc(i.name)}</span><em>${i.pool}</em></label>`
+  ).join('') : '<span style="color:var(--dim);font-size:12.5px">该月无可查户</span>';
+  $('#nHint').textContent = `该月共 ${list.length} 名安检员、${list.reduce((a,b)=>a+b.pool,0)} 户可查`;
+}
+function toggleNew(on){ $('#newBox').classList.toggle('on', on); if(on) loadOptions(); }
+async function createTask(){
+  const co = $('#nCompany').value, m = $('#nMonth').value;
+  const insp = [...document.querySelectorAll('#nInsp input:checked')].map(x=>x.value);
+  if(!insp.length) return alert('先勾选至少一名安检员');
+  const name = $('#nName').value.trim();
+  const requirement = $('#nReq').value.trim();
+  $('#btnCreate').disabled = true; $('#btnCreate').textContent = '创建中…';
+  try{
+    const r = await fetch('/api/special/tasks',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({company:co, month:m, inspectors:insp, requirement, name})}).then(x=>x.json());
+    if(r.error){ alert('创建失败：'+r.error); return; }
+    $('#btnCreate').textContent = '创建完成';
+    await loadTasks();
+    toggleNew(false);
+    openTask(r.task_id);
+  } finally {
+    $('#btnCreate').disabled = false; $('#btnCreate').textContent = '创建并拉取数据';
+  }
+}
+
+/* ---------------- 任务详情 ---------------- */
+async function openTask(id){
+  history.replaceState(null,'','/special?task='+id);
+  const r = await fetch('/api/special/task?id='+id).then(x=>x.json());
+  if(r.error){ alert(r.error); return; }
+  CUR = r;
+  $('#viewList').style.display='none'; $('#viewTask').style.display='block';
+  const t = r.task, tt = r.totals;
+  $('#tName').textContent = t.name;
+  $('#tCode').textContent = t.code;
+  $('#tRange').textContent = t.company_name + ' · ' + t.month;
+  $('#tReq').textContent = t.requirement ? '需求：'+t.requirement : '未填需求';
+  $('#tSub').textContent = `名单 ${t.inspectors.length} 人：${t.inspectors.join('、')} · 全量 ${tt.total} 户（月度已判 ${tt.m_total} 户，本次新判 ${tt.total-tt.m_total} 户）`;
+  $('#sTotal').textContent = tt.total;
+  $('#sJudged').textContent = tt.judged;
+  $('#sReviewed').textContent = tt.reviewed;
+  $('#sRate').textContent = tt.rate + '%';
+  $('#sRateM').textContent = tt.rate_m == null ? '—' : tt.rate_m + '%';
+  $('#sRateL').textContent = `全景符合率（已判 ${tt.denom} 户）`;
+  $('#sRateML').textContent = `原口径符合率（${tt.m_total} 户）`;
+  $('#topHint').textContent = t.code;
+  $('#btnExport').href = '/api/special/download?id=' + t.id;
+  $('#btnXlsx').href = '/api/special/xlsx?id=' + t.id;
+  $('#btnReview').href = '/review?task=' + t.id;
+
+  const tb = $('#sumTbl tbody');
+  tb.innerHTML = r.inspectors.map(a=>`
+    <tr>
+      <td><b>${esc(a.name)}</b></td>
+      <td class="num">${a.total}</td>
+      <td class="num" style="color:var(--red)">${a.crit}</td>
+      <td class="num" style="color:var(--yellow)">${a.warn}</td>
+      <td class="num" style="color:var(--green)">${a.pass_}</td>
+      <td class="num">${a.excluded||''}</td>
+      <td class="num"><span class="rate ${rateCls(a.rate)}">${a.rate}%</span></td>
+      <td class="num">${a.m_total||'—'}</td>
+      <td class="num">${a.rate_m==null?'—':'<span class="rate '+rateCls(a.rate_m)+'">'+a.rate_m+'%</span>'}</td>
+      <td class="num" style="color:var(--red);font-weight:600">${a.nometer||''}</td>
+      <td class="num">${a.arch||''}</td>
+      <td class="num">${a.photo_q||''}</td>
+      <td class="num">${a.scene||''}</td>
+    </tr>`).join('') + `<tr style="background:var(--panel2);font-weight:700">
+      <td>合计</td><td class="num">${tt.total}</td><td class="num">${tt.crit}</td>
+      <td class="num">${tt.warn}</td><td class="num">${tt.pass_}</td><td class="num">${tt.excluded}</td>
+      <td class="num"><span class="rate ${rateCls(tt.rate)}">${tt.rate}%</span></td>
+      <td class="num">${tt.m_total}</td>
+      <td class="num">${tt.rate_m==null?'—':'<span class="rate '+rateCls(tt.rate_m)+'">'+tt.rate_m+'%</span>'}</td>
+      <td class="num">${tt.nometer}</td>
+      <td class="num">${tt.arch}</td><td class="num">${tt.photo_q}</td><td class="num">${tt.scene}</td></tr>`;
+
+  $('#fInsp').innerHTML = '<option value="">全部安检员</option>' +
+    r.inspectors.map(a=>`<option value="${esc(a.name)}">${esc(a.name)}（${a.total}）</option>`).join('');
+
+  await loadRecs();
+}
+function rateCls(v){ return v < 20 ? 'low' : (v < 100 ? 'mid' : 'hi'); }
+
+async function loadRecs(){
+  const r = await fetch(`/api/special/recs?id=${CUR.task.id}&filter=all`).then(x=>x.json());
+  RECS = r.recs || [];
+  renderHouses();
+}
+
+function setFilter(f){
+  FILTER = f;
+  document.querySelectorAll('.quick[data-f]').forEach(b=>b.classList.toggle('on', b.dataset.f===f));
+  renderHouses();
+}
+
+function renderHouses(){
+  const ins = $('#fInsp').value;
+  let list = RECS;
+  if(ins) list = list.filter(x=>x.inspector===ins);
+  if(FILTER==='undone') list = list.filter(x=>!x.review || x.reviewer==='月度复核');
+  if(FILTER==='issue') list = list.filter(x=>x.eff==='critical'||x.eff==='warning');
+  $('#listHint').textContent = `显示 ${list.length} 户`;
+  if(!list.length){ $('#houses').innerHTML = '<div class="card" style="text-align:center;color:var(--dim);padding:40px">没有符合条件的户</div>'; return; }
+
+  $('#houses').innerHTML = list.map((h,i)=>{
+    const cls = h.eff==='critical'?'hit':(h.eff==='warning'?'warn':'');
+    const badge = h.eff==='critical'?'<span class="badge cr">严重提示</span>'
+      : h.eff==='warning'?'<span class="badge wa">一般提示</span>'
+      : h.eff==='none'?'<span class="badge ok">无问题</span>'
+      : '<span class="badge pd">待判定</span>';
+    const rv = h.review==='false_positive'?'<span class="badge ex">已判误判·剔除</span>'
+      : h.review==='warning'?'<span class="badge wa">复核：一般</span>'
+      : h.review==='critical'?'<span class="badge cr">复核：严重</span>' : '';
+    const src = h.src==='monthly'?'<span class="chip">月度原判</span>':'<span class="chip p">本次新判</span>';
+    const ph = (h.photos||[]).filter(p=>!p.empty);
+    const badCodes = new Set((h.issues||[]).map(i=>i.items_code));
+    let ti = ph.findIndex(p=>!p.ext_only && badCodes.has(p.items_code));
+    if(ti<0) ti = ph.findIndex(p=>!p.ext_only);
+    if(ti<0) ti = 0;
+    const th = ph[ti];
+    const flagKind = th ? ((h.issues||[]).find(i=>i.items_code===th.items_code)||{}).kind : '';
+    const shots = th
+      ? `<div class="thumbwrap" onclick="zoom(${h.rid}, ${ti})">
+           <img loading="lazy" src="${esc(srcOf(th))}" alt="" onerror="this.style.opacity=.3">
+           ${flagKind?`<div class="tflag">${esc(flagKind)}</div>`:''}
+           <div class="tmore">共 ${ph.length} 张 · 点开看全部</div>
+         </div>`
+      : '<div class="thumbwrap nopic">无照片</div>';
+
+    const issues = (h.issues||[]).map(x=>`<div class="iss ${x.severity==='critical'?'cr':'wa'}">
+        <b>${x.severity==='critical'?'严重':'一般'} · ${esc(x.kind)}</b><br>${esc(x.detail||'')}</div>`).join('');
+
+    return `<div class="house ${cls}" id="h${h.rid}">
+      <div class="hd">
+        <span class="cn">${esc(h.cust_no)}</span>
+        <span class="meta">${esc(h.cust_name||'')}</span>
+        <span class="meta">安检员：<b>${esc(h.inspector)}</b></span>
+        <span class="meta">${esc(h.check_time||'')}</span>
+        <span class="meta">${esc(h.community||'')} ${esc(h.address||'')}</span>
+        <span class="meta">档案表号：${esc(h.meter_no||'—')}</span>
+        ${badge}${rv}${src}
+      </div>
+      <div class="bd">
+        <div class="shots">${shots}</div>
+        <div class="jbox">
+          ${issues || '<div class="iss">AI 未提出问题</div>'}
+          <div class="cmt">${esc(h.comment||'')}</div>
+          ${h.review?`<div class="rvline">${h.reviewer==='月度复核'?'沿用月度复核（待专项确认）':'已专项复核'}：${h.review==='false_positive'?'误判·剔除':(h.review==='critical'?'严重':'一般')}</div>`:'<div class="rvline" style="color:var(--dim)">尚未人工复核</div>'}
+          <a class="btn" href="/special/house?task=${CUR.task.id}&rid=${h.rid}"
+             style="display:block;text-align:center;text-decoration:none;margin-top:10px;font-weight:600">
+            查看全部 ${h.photos.length} 张照片（全部）→</a>
+          <a class="btn" href="/review?task=${CUR.task.id}"
+             style="display:block;text-align:center;text-decoration:none;margin-top:6px;font-size:12.5px">
+            去人工复核</a>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+
+let LB = { rid:null, i:0, arr:[] };
+function zoom(rid, idx){
+  const h = (RECS||[]).find(x=>String(x.rid)===String(rid));
+  if(!h) return;
+  const arr = (h.photos||[]).filter(p=>!p.empty);
+  if(!arr.length) return;
+  LB = { rid:rid, i: idx||0, arr:arr };
+  lbRender();
+  $('#lightbox').classList.add('on');
+  document.body.style.overflow='hidden';
+}
+function lbRender(){
+  const arr=LB.arr, p=arr[LB.i];
+  if(!p) return;
+  $('#lbImg').src = srcOf(p);
+  $('#lbCap').textContent = `${LB.i+1} / ${arr.length}　${p.name||''}${p.is_meter?'（表具）':''}${p.ext_only?'　仅展示':''}`;
+  $('#lbPrev').disabled = LB.i<=0;
+  $('#lbNext').disabled = LB.i>=arr.length-1;
+  $('#lbStrip').innerHTML = arr.map((x,i)=>`<img src="${esc(srcOf(x))}" class="${i===LB.i?'on':''}" onclick="lbPick(${i})" alt="">`).join('');
+  const h=(RECS||[]).find(x=>String(x.rid)===String(LB.rid));
+  if(h) $('#lbTitle').textContent = `${h.cust_no} ${h.cust_name||''} · 安检员 ${h.inspector}`;
+}
+function lbPick(i){ LB.i=i; lbRender(); }
+function lbGo(d){ const n=LB.i+d; if(n<0||n>=LB.arr.length) return; LB.i=n; lbRender(); }
+function closeLb(){ $('#lightbox').classList.remove('on'); document.body.style.overflow=''; LB={rid:null,i:0,arr:[]}; }
+document.addEventListener('keydown', e=>{
+  if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT') return;
+  if(e.key==='Escape') closeLb();
+  if(LB.rid){
+    if(e.key==='ArrowLeft') lbGo(-1);
+    if(e.key==='ArrowRight') lbGo(1);
+    if(e.key==='Escape') return;
+  }
+});
+
+function backList(){
+  history.replaceState(null,'','/special');
+  $('#viewTask').style.display='none'; $('#viewList').style.display='block';
+  $('#topHint').textContent = '专项任务 · 独立库';
+  loadTasks();
+}
+
+/* 初始化 */
+(async function(){
+  await loadTasks();
+  const p = new URLSearchParams(location.search);
+  if(p.get('task')) openTask(parseInt(p.get('task')));
+  if(p.get('new')) toggleNew(true);
+})();
+</script>
+</body>
+</html>

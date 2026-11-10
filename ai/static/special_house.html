@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>专项 · 单户详情</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.hd-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.hd-bar .cn{font-size:26px;font-weight:700;color:var(--hi);letter-spacing:.5px}
+.hd-bar .nm{font-size:17px;color:var(--hi);font-weight:600}
+.meta{font-size:12.5px;color:var(--dim)}
+.meta b{color:var(--txt);font-weight:600}
+.stat{display:flex;gap:8px;flex-wrap:wrap}
+.pill{font-size:12px;padding:3px 10px;border-radius:12px;background:var(--panel2);
+  border:1px solid var(--line);color:var(--dim)}
+.pill.cr{background:var(--redbg);color:var(--red);border-color:#ffccc7;font-weight:600}
+.pill.wa{background:var(--yellowbg);color:var(--yellow);border-color:#f0d999;font-weight:600}
+.pill.ok{background:var(--greenbg);color:var(--green);border-color:#b7eb8f;font-weight:600}
+.pill.ex{background:#f0f5ff;color:#2f54eb;border-color:#d6e4ff;font-weight:600}
+.pill.sp{background:#f5f0ff;color:#7c3aed;border-color:#ddd0ff}
+
+.phnote{font-size:11px;color:#8b95a3;font-weight:400}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--dim);margin:0 0 12px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.legend .r{background:var(--redbg);border:1px solid var(--red)}
+.legend .y{background:var(--yellowbg);border:1px solid var(--yellow)}
+.legend .w{background:#fff;border:1px solid var(--line)}
+
+.layout{display:grid;grid-template-columns:1fr 330px;gap:16px;align-items:start}
+@media(max-width:1180px){.layout{grid-template-columns:1fr}}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.pic{position:relative;border-radius:8px;overflow:hidden;border:2px solid var(--line);
+  background:#eef1f5;cursor:zoom-in}
+.pic.cr{border-color:var(--red)}
+.pic.wa{border-color:#e8c46a}
+.pic img{width:100%;height:225px;object-fit:cover;display:block}
+.pic .badge{position:absolute;top:0;left:0;font-size:11.5px;padding:3px 9px;font-weight:600;
+  border-bottom-right-radius:6px;color:#fff}
+.pic.cr .badge{background:var(--red)}
+.pic.wa .badge{background:#c08a1e}
+.pic .cap{position:absolute;bottom:0;left:0;right:0;background:rgba(255,255,255,.94);
+  font-size:12px;color:var(--txt);padding:4px 8px;text-align:center;border-top:1px solid var(--line)}
+.pic .cap em{font-style:normal;color:var(--green);font-weight:600;margin-left:5px}
+
+.side .card{margin-bottom:12px}
+.side h3{font-size:13px;color:var(--dim);font-weight:600;margin:0 0 8px}
+.iss{padding:9px 11px;border-radius:7px;margin-bottom:7px;font-size:12.5px;line-height:1.5}
+.iss.cr{background:var(--redbg);border-left:3px solid var(--red)}
+.iss.wa{background:var(--yellowbg);border-left:3px solid #e8c46a}
+.iss b{display:block;font-size:13px;margin-bottom:2px}
+.iss .k{font-size:11px;color:var(--dim)}
+.cmt{font-size:12.5px;line-height:1.6;color:var(--txt);background:var(--panel2);
+  padding:9px 11px;border-radius:7px;white-space:pre-wrap}
+.cmp{display:flex;gap:8px;font-size:12.5px;margin-top:6px}
+.cmp div{flex:1;background:var(--panel2);border-radius:7px;padding:8px 10px;text-align:center}
+.cmp .t{font-size:11px;color:var(--dim);margin-bottom:3px}
+.cmp .v{font-weight:700}
+#lb{position:fixed;inset:0;background:rgba(13,21,32,.94);display:none;z-index:999;
+  align-items:center;justify-content:center;cursor:zoom-out}
+#lb.on{display:flex}
+#lb img{max-width:96vw;max-height:94vh;object-fit:contain}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">⚡ 安检照片<em>AI质检</em></div>
+  <nav>
+    <a href="/">总览</a>
+    <a href="/live">实时看板</a>
+    <a href="/review">人工复核</a>
+    <a href="/report">月度报告</a>
+    <a href="/special" class="on">专项任务</a>
+    <a href="/settings" title="高级设置（待完善）">设置<small style="font-size:11px;color:#9aa5b1;margin-left:2px">待完善</small></a>
+  </nav>
+  <div class="sp"></div>
+  <span class="hint" id="topHint">—</span>
+</header>
+
+<div class="wrap" id="app">
+  <p class="sub">加载中…</p>
+</div>
+
+<div id="lb" onclick="this.classList.remove('on')"><img id="lbImg" alt=""></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const srcOf = p => {
+  const u = (p && (p.path || p.url)) || '';
+  if (!u) return '';
+  return /^https?:\/\//i.test(u) ? u : ('/' + u.replace(/^\/+/, ''));
+};
+const P = new URLSearchParams(location.search);
+const TID = P.get('id') || P.get('task') || '';
+const RID = P.get('rid') || '';
+const VL = {critical:'严重提示', warning:'一般提示', false_positive:'误判', none:'无问题'};
+
+async function load(){
+  if(!TID || !RID){ $('#app').innerHTML='<p class="sub">缺少参数（需 id 与 rid）</p>'; return; }
+  const d = await (await fetch(`/api/special/house?id=${TID}&rid=${RID}`)).json();
+  if(d.error){ $('#app').innerHTML='<p class="sub">'+esc(d.error)+'</p>'; return; }
+  render(d);
+}
+
+function render(d){
+  const r = d.rec, t = d.task, iss = d.issues || [];
+  const crit = iss.filter(x=>x.severity==='critical').length;
+  const warn = iss.filter(x=>x.severity==='warning').length;
+  document.title = `${r.cust_no} ${r.cust_name||''} · 专项详情`;
+  $('#topHint').textContent = `${t.company_name} ${t.month} · ${t.code}`;
+
+  const effPill = d.eff==='critical'?'<span class="pill cr">系统判定：严重</span>'
+    : d.eff==='warning'?'<span class="pill wa">系统判定：一般</span>'
+    : d.eff==='none'?'<span class="pill ok">系统判定：无问题</span>'
+    : '<span class="pill">待判定</span>';
+  const rvPill = d.review ? (d.review.verdict==='false_positive'
+      ? '<span class="pill ex">已判误判·剔除</span>'
+      : `<span class="pill ${d.review.verdict==='critical'?'cr':'wa'}">复核：${VL[d.review.verdict]||d.review.verdict}</span>`) : '';
+
+  const m = d.monthly || {};
+  const mTxt = m.issues ? `${m.crit?'严重':''}${m.crit&&m.warn?'+':''}${m.warn?'一般':''}(${m.issues}条)`
+                        : (m.verdict ? '已复核无问题' : '月度未抽到');
+
+  const allP = d.photos||[];
+  const nEmpty = allP.filter(p=>p.empty).length;
+  const nExt = allP.filter(p=>p.ext_only && !p.empty).length;
+  const picSum = allP.length
+    ? `<div class="picsum">检查项 <b>${d.ph_items||new Set(allP.map(x=>x.items_code)).size}</b> 个 · 共 <b>${allP.length}</b> 张` +
+      (nEmpty?` · <span style="color:var(--red)">未拍摄 ${nEmpty} 项</span>`:'') +
+      (nExt?` · 其中 ${nExt} 张辅助照片（外链，仅展示）`:'') + `</div>` : '';
+  const pics = allP.length ? allP.map(p=>{
+    if (p.empty) {
+      return `<figure class="pic nop"><div class="nopic">未拍摄</div>
+        <figcaption class="cap">${esc(p.name)}</figcaption></figure>`;
+    }
+    const crit = p.items_code && d.issues.some(x=>x.items_code===p.items_code && x.severity==='critical');
+    const anyb = p.items_code && d.issues.some(x=>x.items_code===p.items_code);
+    const cls = p.ext_only ? 'ext' : (crit ? 'cr' : (anyb ? 'wa' : ''));
+    const badge = p.ext_only ? '<span class="badge" style="background:rgba(107,118,132,.88)">仅展示</span>'
+      : crit ? `<span class="badge">${esc(d.issues.find(x=>x.items_code===p.items_code && x.severity==='critical').kind)}</span>`
+      : anyb ? `<span class="badge">${esc(d.issues.find(x=>x.items_code===p.items_code).kind)}</span>` : '';
+    return `<figure class="pic ${cls}" onclick="zoom('${srcOf(p)}')">
+      <img src="${srcOf(p)}" loading="lazy" alt="" onerror="this.style.opacity=.25;this.alt='图片未加载'">
+      ${badge}
+      <figcaption class="cap">${esc(p.name)}${p.is_meter?'<em>表具</em>':''}</figcaption>
+    </figure>`;
+  }).join('') : '<p class="sub">该户无照片记录</p>';
+
+  $('#app').innerHTML = `
+  <div class="hd-bar">
+    <a class="btn" href="/special?task=${t.id}" style="text-decoration:none">← 返回报告</a>
+    <span class="cn">${esc(r.cust_no)}</span>
+    <span class="nm">${esc(r.cust_name||'')}</span>
+    <span class="stat">${effPill}${rvPill}</span>
+    <span class="sp" style="flex:1"></span>
+    <a class="btn pri" style="text-decoration:none"
+       href="/review?task=${t.id}">在人工复核中打开</a>
+  </div>
+  <p class="sub" style="margin:-6px 0 14px">
+    安检员 <b>${esc(r.inspector)}</b>　·　安检时间 ${esc(r.check_time||'')}
+    　·　${esc(r.community||'')} ${esc(r.address||'')}
+    　·　档案表号 <b>${esc(r.meter_no||'—')}</b>
+    　·　用气性质 ${esc(r.gas_nature||'—')}
+    　·　检查项 <b>${d.ph_items||0}</b> 个 / 照片 <b>${(d.photos||[]).length}</b> 张<span class="phnote">（含外链辅助照片，未下载）</span>
+    　·　系统问题 ${iss.length} 项
+  </p>
+
+  <div class="layout">
+    <div>
+      <div class="legend">
+        <span><i class="r"></i>红框 = 系统判定为严重问题</span>
+        <span><i class="y"></i>黄框 = 一般提示</span>
+        <span><i class="w"></i>白框 = 该户其它照片</span>
+        <span>照片标注 = 安检单上的检查项</span>
+      </div>
+      ${picSum}<div class="grid">${pics}</div>
+    </div>
+
+    <div class="side">
+      <div class="card">
+        <h3>系统判定的问题（${iss.length} 项）</h3>
+        ${iss.length ? iss.map(x=>`<div class="iss ${x.severity==='critical'?'cr':'wa'}">
+            <b>${esc(x.kind)}</b>
+            <div class="k">${esc(x.name||x.items_code||'')} · ${x.severity==='critical'?'严重':'一般'}</div>
+            ${x.detail?`<div style="margin-top:3px">${esc(x.detail)}</div>`:''}
+          </div>`).join('') : '<div class="cmt">系统未提出问题</div>'}
+        ${d.judg&&d.judg.comment?`<div class="cmt" style="margin-top:8px">${esc(d.judg.comment)}</div>`:''}
+      </div>
+
+      <div class="card">
+        <h3>结论对比</h3>
+        <div class="cmp">
+          <div><div class="t">月度原判</div><div class="v" style="color:var(--dim)">${esc(mTxt)}</div></div>
+          <div><div class="t">专项结论</div><div class="v" style="color:${d.eff==='critical'?'var(--red)':d.eff==='warning'?'var(--yellow)':'var(--green)'}">${VL[d.eff]||'待判定'}</div></div>
+        </div>
+        ${d.review ? `<div class="cmt" style="margin-top:8px">复核意见（${esc(d.review.reviewer||'')}）<br>${esc(d.review.note||'—')}</div>`
+                   : '<p class="hint" style="margin:8px 0 0">尚未人工复核</p>'}
+      </div>
+
+      <div class="card">
+        <h3>操作</h3>
+        <a class="btn pri" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px"
+           href="/review?task=${t.id}">去人工复核这一户</a>
+        <p class="hint" style="margin:0">人工复核在「人工复核」页统一做，判定会实时写回本专项任务。</p>
+      </div>
+    </div>
+  </div>`;
+}
+
+function zoom(u){ $('#lbImg').src=u; $('#lb').classList.add('on'); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') $('#lb').classList.remove('on'); });
+load();
+</script>
+</body>
+</html>

@@ -170,3 +170,38 @@ figure.warn .flag{background:var(--yellow)}
   .card,table{box-shadow:none}
   tr{page-break-inside:avoid}
 }
+/* ---------- 图片清理提醒（2026-11-10） ---------- */
+.gcpill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+  border:1px solid var(--line);background:var(--panel);font-size:12.5px;cursor:pointer;
+  font-family:inherit;color:var(--txt);margin-right:14px;line-height:1.5}
+.gcpill:hover{border-color:var(--blue);color:var(--blue)}
+.gcpill.warn{border-color:#ffd666;background:#fffbe6;color:#ad6800}
+.gcpill.due{border-color:#ffa39e;background:#fff1f0;color:#cf1322;font-weight:600}
+.modal{position:fixed;inset:0;background:rgba(8,12,18,.55);z-index:200;display:none;
+  align-items:center;justify-content:center;padding:20px}
+.modal.on{display:flex}
+.mbox{background:#fff;border-radius:12px;max-width:720px;width:100%;max-height:82vh;overflow:auto;
+  box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.mhd{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}
+.mhd h3{margin:0;font-size:16px}
+.mhd .x{margin-left:auto;cursor:pointer;font-size:22px;color:#9aa5b1;padding:0 6px;line-height:1}
+.mbd{padding:16px 20px}
+.mft{padding:12px 20px;border-top:1px solid var(--line);text-align:right}
+.gctb{width:100%;border-collapse:collapse;font-size:13px}
+.gctb th{background:#f8fafc;color:#6b7684;font-size:12px;font-weight:600;text-align:left;
+  padding:8px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+.gctb td{padding:9px;border-bottom:1px solid #eef2f6;white-space:nowrap}
+.gctb .num{text-align:right;font-variant-numeric:tabular-nums}
+.gctb .due{color:#cf1322;font-weight:600}
+.gctb .soon{color:#ad6800;font-weight:600}
+.gctb .ok{color:#6b7684}
+.gcwarn{background:#fffbe6;border:1px solid #ffe58f;border-radius:8px;padding:10px 13px;
+  font-size:12.5px;color:#ad6800;margin-bottom:12px;line-height:1.7}
+
+.gcpaths{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-4px 0 12px}
+.gclab{font-size:12.5px;color:#6b7684}
+.gcpath{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;
+  background:#f5f8fc;border:1px solid #dbe6f5;color:#1668dc;font-size:12px;cursor:pointer;
+  font-family:Consolas,monospace;max-width:340px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;line-height:1.6}
+.gcpath:hover{background:#eaf2ff;border-color:#1668dc;text-decoration:underline}

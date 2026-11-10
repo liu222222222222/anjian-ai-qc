@@ -161,24 +161,37 @@ def cmd_prepare(a):
         job.state["phase"] = "sample"
         picked = job.sample(con)
 
-        # 试点限流：按安检员轮转取，避免全落在排前面的少数人头上
+        # 试点限流：按安检员分配名额，避免全落在排前面的少数人头上。
+        # 2026-11-04 修：旧写法每人硬性 max(1,...)，安检员数 > limit 时
+        # 配额和永远 ≥ 人数，削减循环遇 quota[k]<=1 即 break —— limit 彻底失效
+        # （A 公司 10 月 --limit 10 实际抽了 24 户，24 个安检员各 1 户）。
+        # 改用最大余数法：总和精确等于 limit，人多的安检员优先分到名额。
         if a.limit and len(picked) > a.limit:
             by = {}
             for rid in picked:
                 insp = con.execute("SELECT inspector FROM records WHERE id=?", (rid,)).fetchone()["inspector"]
                 by.setdefault(insp or "(未填)", []).append(rid)
-            # 各安检员按比例分配名额，余数补给户数多的
-            quota = {k: max(1, int(len(v) * a.limit / len(picked) + 0.5)) for k, v in by.items()}
-            while sum(quota.values()) > a.limit:
-                k = max(quota, key=lambda x: (quota[x] - len(by[x]), quota[x]))
-                if quota[k] <= 1:
-                    break
-                quota[k] -= 1
-            while sum(quota.values()) < a.limit:
-                k = max(by, key=lambda x: len(by[x]) - quota[x])
-                if quota[k] >= len(by[k]):
-                    break
-                quota[k] += 1
+            n_insp = len(by)
+            total = len(picked)
+            if a.limit <= n_insp:
+                # 名额少于安检员数：按本人户数从多到少挑前 limit 人，各 1 户
+                order = sorted(by, key=lambda k: (-len(by[k]), k))
+                quota = {k: (1 if i < a.limit else 0) for i, k in enumerate(order)}
+            else:
+                # 名额够分：先按比例取整，余数按小数部分从大到小补
+                base = {k: int(len(v) * a.limit / total) for k, v in by.items()}
+                rem = a.limit - sum(base.values())
+                frac = sorted(by, key=lambda k: -(len(by[k]) * a.limit / total - base[k]))
+                for k in frac[:rem]:
+                    base[k] += 1
+                # 兜底：按比例分不到 1 户但户数够多的，给 1 户（从超额者扣回）
+                for k in sorted(by, key=lambda x: -len(by[x])):
+                    if base[k] == 0 and len(by[k]) >= 1:
+                        over = max(base, key=lambda x: base[x])
+                        if base[over] > 1:
+                            base[over] -= 1
+                            base[k] = 1
+                quota = base
             keep = []
             for k, v in by.items():
                 keep.extend(v[:quota[k]])
@@ -188,7 +201,7 @@ def cmd_prepare(a):
                             (1 if rid in keepset else 0, rid))
             con.commit()
             picked = keep
-            job.log(f"试点限流：{len(by)} 名安检员，抽查 {a.limit} 户")
+            job.log(f"试点限流：{n_insp} 名安检员，抽查 {len(picked)} 户")
 
         job.state["phase"] = "check"
         nchk = job.build_checks(con, picked)
@@ -309,14 +322,16 @@ def _apply_one(con, rec_id, payload, run_id=None, do_triage=True):
         payload.setdefault(k, rec[k])
 
     probs = []          # (kind, severity, detail, photo_id)
-    # 该公司「表具照片」所在 items_code（E 公司 items2 / C 公司 items1 / A 公司 items4）
-    MC = D.meter_code(rec["company"])
+    # 该公司「表具照片」可能所在的 items_code（E 公司 items2 / C 公司 items1 / A 公司 items4+items17）
+    MCS = D.meter_codes(rec["company"])
     # 该户所有照片：items_code → photo_id（Agent 提交时习惯写 items_code，这里自动换算，
     # 否则报告里问题行关联不上照片，格子会是空的）
     pid_by_code = {}
     for p in con.execute("SELECT id, items_code FROM photos WHERE record_id=?",
                          (rec_id,)).fetchall():
         pid_by_code.setdefault(p["items_code"], p["id"])
+    # 表具问题挂哪张图：按 meter_codes 顺序取第一张有图的（A 公司 items4 优先，items17 兜底）
+    meter_pid = next((pid_by_code[c] for c in MCS if c in pid_by_code), None)
     # 1) Agent 报的问题
     for it in payload.get("issues", []) or []:
         pid = it.get("photo_id")
@@ -334,16 +349,25 @@ def _apply_one(con, rec_id, payload, run_id=None, do_triage=True):
         probs.append((val, sev,
                       f"检查项「{ITEMS_NAME.get(code, code)}」内容不符",
                       pid_by_code.get(code)))
-    if payload.get("meter_readable") is False:
+    # 表号类问题的去重护栏（2026-10-21）：
+    # Agent 常同时填 meter_readable=false 和一条手工 issue（表号无法辨认 / 表具照片无法确认），
+    # 两者的 kind 字符串不同，单靠 (kind,detail) 去重拦不住，会在同一户生成两条同义问题行。
+    # 只要已有任一「表号读不出」语义的问题，就不再机械追加。
+    _METER_UNREADABLE_KINDS = {"表号无法辨认", "表号读不出", "表具照片无法确认"}
+    _has_meter_unreadable = any(p[0] in _METER_UNREADABLE_KINDS for p in probs)
+    if payload.get("meter_readable") is False and not _has_meter_unreadable:
         # 2026-10-19 改：表号读不出是「拍照不清晰」，属提示不属严重
         # 旧版这里是 critical —— 反复冤枉安检员的根源，不要再改回去
         probs.append(("表号读不出", "warning",
                       f"登记表号 {payload.get('meter_no') or ''}，照片上未读出",
-                      pid_by_code.get(MC)))
-    if payload.get("meter_match") is False:
+                      meter_pid))
+    # 同理：Agent 手工写了一条「表号与档案不一致」又填 meter_match=false 时，
+    # 别再加一条一模一样的 critical（2026-10-21，98206 实测踩到）
+    if payload.get("meter_match") is False and not any(
+            p[0] == "表号与档案不一致" for p in probs):
         probs.append(("表号与档案不一致", "critical",
                       f"照片读出 {payload.get('meter_read') or '?'}，档案 {payload.get('meter_no') or '?'}",
-                      pid_by_code.get(MC)))
+                      meter_pid))
     # 水印日期与工单不符：用户 2026-10-16 定「168 小时一刀切」
     #   gap >= 168h → critical；不足 168h 不标记（先拍照后补工单属正常）
     #   机械兜底按 checks 里的工单时间计算，Agent 无需再给 time_match
@@ -358,7 +382,7 @@ def _apply_one(con, rec_id, payload, run_id=None, do_triage=True):
                 probs.append(("水印日期与工单不符", "critical",
                               f"照片水印时间 {wt}，安检工单时间 {ot}，"
                               f"相差约{gap_min/60:.1f}小时（超过7天）",
-                              pid_by_code.get(MC)))
+                              meter_pid))
     except Exception:
         pass
     if payload.get("form_date_valid") is False:
@@ -366,7 +390,7 @@ def _apply_one(con, rec_id, payload, run_id=None, do_triage=True):
                       f"手写 {payload.get('form_check_date') or '?'}",
                       pid_by_code.get(D.form_code(rec["company"]))))
     if payload.get("scene_valid") is False:
-        probs.append(("照片非安检现场", "critical", "", pid_by_code.get(MC)))
+        probs.append(("照片非安检现场", "critical", "", meter_pid))
     for h in payload.get("hidden_trouble") or []:
         probs.append((f"重大隐患：{h}", "critical", "", None))
 
